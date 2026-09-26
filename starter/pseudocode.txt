@@ -1,0 +1,2 @@
+every turn:
+    pick a random move out of reload, shield, shoot, snipe and counter

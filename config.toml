@@ -1,0 +1,40 @@
+# 007 game rules. Every number the engine uses lives here.
+# Action names are fixed (RELOAD, SHIELD, SHOOT, SNIPE, COUNTER); their numbers are not.
+
+[game]
+start_hp = 3
+start_ammo = 0
+max_ammo = 3
+max_rounds = 25
+# Shield can be used this many times in a row. Any other action except a fumble refills it.
+shield_charges = 3
+
+[actions.RELOAD]
+cost = 0
+ammo_gain = 1
+
+[actions.SHIELD]
+cost = 0
+
+[actions.SHOOT]
+cost = 1
+damage = 1
+blocked_by = ["SHIELD"]     # defender takes nothing
+reflected_by = ["COUNTER"]  # attacker takes the damage instead
+
+[actions.SNIPE]
+cost = 2
+damage = 1
+blocked_by = ["SNIPE", "COUNTER"]  # two snipes cancel out; COUNTER stops it too
+reflected_by = []                  # move COUNTER here to bounce snipes back instead
+
+[actions.COUNTER]
+cost = 1
+
+# Bot limits (enforced by the sandboxed runner; the in-process CLI only reports them).
+[limits]
+move_timeout_ms = 100        # a move that takes longer is a FUMBLE and the bot's process is restarted
+load_timeout_ms = 3000       # time to start the process and run the script's top-level code
+memory_limit_mb = 256        # per bot process
+max_timeouts_per_match = 3   # after this many, the bot fumbles the rest of the match
+print_chars_per_turn = 500
