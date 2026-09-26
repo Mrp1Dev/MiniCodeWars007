@@ -4,13 +4,31 @@ import { useEventStatus } from "./hooks";
 import { startEngine } from "./local/engine";
 import Register from "./components/Register";
 import Workspace from "./components/Workspace";
+import Admin from "./components/Admin";
+
+const checkIsAdmin = () =>
+  typeof window !== "undefined" &&
+  (window.location.pathname.startsWith("/admin") ||
+    window.location.hash.startsWith("#admin") ||
+    new URLSearchParams(window.location.search).has("admin"));
 
 export default function App() {
+  const [isAdmin, setIsAdmin] = useState(checkIsAdmin);
   const [token, setTok] = useState(getToken());
   const [me, setMe] = useState(null);
   const [loadError, setLoadError] = useState("");
   const [info, setInfo] = useState({ starter: null, houseBots: [], rules: null });
   const { status, offline, refresh } = useEventStatus();
+
+  useEffect(() => {
+    const onNav = () => setIsAdmin(checkIsAdmin());
+    window.addEventListener("hashchange", onNav);
+    window.addEventListener("popstate", onNav);
+    return () => {
+      window.removeEventListener("hashchange", onNav);
+      window.removeEventListener("popstate", onNav);
+    };
+  }, []);
 
   const signOut = useCallback(() => {
     setToken(null);
@@ -38,6 +56,21 @@ export default function App() {
   }, [token]);
 
   useEffect(refreshMe, [refreshMe]);
+
+  if (isAdmin) {
+    return (
+      <Admin
+        onExit={() => {
+          if (window.location.pathname.startsWith("/admin")) {
+            window.location.href = "/";
+          } else {
+            window.location.hash = "";
+            setIsAdmin(false);
+          }
+        }}
+      />
+    );
+  }
 
   if (!token) {
     return (

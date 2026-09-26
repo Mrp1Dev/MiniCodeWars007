@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS participants (
     id          INTEGER PRIMARY KEY,
     roll        TEXT NOT NULL UNIQUE,
     name        TEXT NOT NULL,
-    token_hash  TEXT NOT NULL UNIQUE,
+    token_hash  TEXT,
     created_at  REAL NOT NULL
 );
 CREATE TABLE IF NOT EXISTS submissions (
@@ -39,13 +39,6 @@ CREATE TABLE IF NOT EXISTS ai_requests (
     created_at         REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ai_by_participant ON ai_requests(participant_id, id);
--- Extra logins: signing in again with a roll number adds a session, so every browser
--- someone uses stays signed in. (participants.token_hash is the first one.)
-CREATE TABLE IF NOT EXISTS sessions (
-    token_hash      TEXT PRIMARY KEY,
-    participant_id  INTEGER NOT NULL REFERENCES participants(id),
-    created_at      REAL NOT NULL
-);
 CREATE TABLE IF NOT EXISTS event (
     key    TEXT PRIMARY KEY,
     value  TEXT
@@ -54,10 +47,6 @@ CREATE TABLE IF NOT EXISTS event (
 
 _init_lock = threading.Lock()
 _initialised = False
-
-
-def hash_token(token: str) -> str:
-    return hashlib.sha256(token.encode()).hexdigest()
 
 
 @contextmanager
@@ -71,6 +60,7 @@ def connect():
             with _init_lock:
                 conn.execute("PRAGMA journal_mode=WAL")
                 conn.executescript(SCHEMA)
+                conn.execute("DROP TABLE IF EXISTS sessions")
                 _initialised = True
         with conn:  # commits, or rolls back on error
             yield conn
@@ -100,34 +90,20 @@ def set_event(**values):
 
 # --- participants ------------------------------------------------------------------
 
-def create_participant(roll, name, token):
+def create_participant(roll, name, token=None):
     with connect() as c:
         cur = c.execute("INSERT INTO participants(roll, name, token_hash, created_at) VALUES(?, ?, ?, ?)",
-                        (roll, name, hash_token(token), time.time()))
+                        (roll, name, roll, time.time()))
         return cur.lastrowid
 
 
 def participant_by_token(token):
-    h = hash_token(token)
-    with connect() as c:
-        return c.execute("SELECT * FROM participants WHERE token_hash = ? OR id = "
-                         "(SELECT participant_id FROM sessions WHERE token_hash = ?)", (h, h)).fetchone()
-
-
-def add_session(participant_id, token):
-    with connect() as c:
-        c.execute("INSERT INTO sessions(token_hash, participant_id, created_at) VALUES(?, ?, ?)",
-                  (hash_token(token), participant_id, time.time()))
+    return participant_by_roll(token)
 
 
 def participant_by_roll(roll):
     with connect() as c:
         return c.execute("SELECT * FROM participants WHERE roll = ?", (roll,)).fetchone()
-
-
-def set_token(participant_id, token):
-    with connect() as c:
-        c.execute("UPDATE participants SET token_hash = ? WHERE id = ?", (hash_token(token), participant_id))
 
 
 def list_participants():

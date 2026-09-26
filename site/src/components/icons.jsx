@@ -29,6 +29,28 @@ export const IconMegaphone = (p) => <Svg {...p}><path d="M3 11v2a1 1 0 0 0 1 1h2
 export const IconCode = (p) => <Svg {...p}><path d="M8 7l-5 5 5 5M16 7l5 5-5 5" /></Svg>;
 export const IconText = (p) => <Svg {...p}><path d="M4 6h16M4 11h16M4 16h10" /></Svg>;
 
+export const IconKey = (p) => (
+  <Svg {...p}><circle cx="8" cy="15" r="4" /><path d="M10.85 12.15L19 4M18 5l2 2M15 8l2 2" /></Svg>
+);
+export const IconClock = (p) => (
+  <Svg {...p}><circle cx="12" cy="12" r="10" /><path d="M12 6v6l4 2" /></Svg>
+);
+export const IconLock = (p) => (
+  <Svg {...p}><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V7a4 4 0 0 1 8 0v4" /></Svg>
+);
+export const IconSearch = (p) => (
+  <Svg {...p}><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" /></Svg>
+);
+export const IconCopy = (p) => (
+  <Svg {...p}><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></Svg>
+);
+export const IconDownload = (p) => (
+  <Svg {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" /></Svg>
+);
+export const IconRefresh = (p) => (
+  <Svg {...p}><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" /></Svg>
+);
+
 // The gun-barrel mark: concentric rings, used for the brand and empty states.
 export const Barrel = ({ size = 22 }) => (
   <svg width={size} height={size} viewBox="0 0 40 40" aria-hidden="true">

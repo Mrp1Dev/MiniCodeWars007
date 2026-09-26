@@ -110,22 +110,54 @@ export default function Workspace({ me, status, offline, refreshStatus, refreshM
     if (editor.current) editor.current.setProblems(syntaxCheck ? problems : []);
   }, [problems, syntaxCheck]);
 
+  const starterComments = useMemo(() => {
+    if (!starter || !starter.code) return "";
+    const idx = starter.code.indexOf("def play");
+    return idx !== -1 ? starter.code.slice(0, idx).trim() : "";
+  }, [starter]);
+
   // --- clean with AI ------------------------------------------------------------------------
   async function clean() {
     const text = editor.current.getDoc();
     if (!text.trim()) return toast("Write something first: your bot's rules, in Python or plain English.", "bad");
-    if (text.length > MAX_AI_CHARS) return toast(`Too long for the AI: ${text.length} of ${MAX_AI_CHARS} characters.`, "bad");
+
+    // Don't send starter comments to the LLM (saves characters and prompt tokens)
+    let textToSend = text;
+    if (starterComments && textToSend.includes(starterComments)) {
+      textToSend = textToSend.replace(starterComments, "").trim();
+    } else if (textToSend.includes("play() is called") || textToSend.includes("Write your bot")) {
+      const idx = textToSend.indexOf("def play");
+      if (idx !== -1) {
+        textToSend = textToSend.slice(idx).trim();
+      }
+    }
+
+    if (!textToSend.trim()) {
+      return toast("Write your bot's rules in Python or plain English below the comments.", "bad");
+    }
+    if (textToSend.length > MAX_AI_CHARS) {
+      return toast(`Too long for the AI: ${textToSend.length} of ${MAX_AI_CHARS} characters.`, "bad");
+    }
+
     setCleaning(true);
     setIssues([]);
     setCleanError("");
     editor.current.clearQuotes();
     try {
-      const r = await api("/api/clean", { body: { pseudocode: text } });
+      const r = await api("/api/clean", { body: { pseudocode: textToSend } });
       setRemaining(r.remaining);
-      const same = r.status === "ok" && sameCode(r.code, text);
+
+      // Attach starter comments back to the LLM's response
+      let finalCode = r.code || "";
+      const commentsToAttach = starterComments || (starter && starter.code ? starter.code.split("def play")[0].trim() : "");
+      if (r.status === "ok" && commentsToAttach && !finalCode.includes("play() is called")) {
+        finalCode = `${commentsToAttach}\n\n${finalCode.trimStart()}`;
+      }
+
+      const same = r.status === "ok" && sameCode(finalCode, text);
       const entry = {
         id: Date.now(), at: Date.now(), input: text, status: same ? "same" : r.status,
-        code: r.code || "", issues: r.issues || [], message: r.message || "",
+        code: finalCode, issues: r.issues || [], message: r.message || "",
       };
       setHistory((h) => [entry, ...h].slice(0, MAX_HISTORY));
       setSelectedId(entry.id);
@@ -133,7 +165,7 @@ export default function Workspace({ me, status, offline, refreshStatus, refreshM
         if (same) {
           toast("Looks right already. The AI didn't change anything.", "ok");
         } else {
-          editor.current.replaceDoc(r.code);
+          editor.current.replaceDoc(finalCode);
           setPanelOpen(true);
           toast("Cleaned. Ctrl+Z brings back what you wrote.", "ok");
         }

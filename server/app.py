@@ -78,11 +78,11 @@ def require_phase(*allowed):
 
 # --- auth ----------------------------------------------------------------------------
 
-def participant(authorization: str = Header(default="")):
-    token = authorization.removeprefix("Bearer ").strip()
-    row = db.participant_by_token(token) if token else None
+def participant(authorization: str = Header(default=""), x_roll: str = Header(default="")):
+    roll = (authorization.removeprefix("Bearer ").strip() or x_roll.strip()).upper()
+    row = db.participant_by_roll(roll) if roll else None
     if row is None:
-        raise HTTPException(401, "not registered, or your session expired; ask an organiser")
+        raise HTTPException(401, "not registered; please sign in with your roll number")
     return row
 
 
@@ -275,8 +275,11 @@ def engine_bundle():
     return ENGINE_BUNDLE
 
 
+STARTER_CODE = (settings.ROOT / "starter" / "bot.py").read_text(encoding="utf-8")
+STARTER_COMMENTS = STARTER_CODE.split("def play", 1)[0].strip() if "def play" in STARTER_CODE else ""
+
 STARTER = {
-    "code": (settings.ROOT / "starter" / "bot.py").read_text(encoding="utf-8"),
+    "code": STARTER_CODE,
     "pseudocode": (settings.ROOT / "starter" / "pseudocode.txt").read_text(encoding="utf-8"),
 }
 
@@ -289,20 +292,17 @@ def starter():
 
 @app.post("/api/register")
 def register(body: RegisterBody):
-    """Signs in with roll number + name: registers a new roll number, or signs in again as an
-    existing one (any phase, keeping the name it registered with). There are no passwords; the
-    token only identifies this browser."""
-    token = secrets.token_urlsafe(24)
+    """Signs in with roll number + name. Identified directly by roll number in local browser storage;
+    no crypto tokens or multi-laptop session tracking."""
     row = db.participant_by_roll(body.roll)
     if row is None:
         require_phase("registration", "coding")
         try:
-            pid = db.create_participant(body.roll, body.name, token)
-            return {"token": token, "id": pid, "roll": body.roll, "name": body.name, "new": True}
+            pid = db.create_participant(body.roll, body.name)
+            return {"token": body.roll, "id": pid, "roll": body.roll, "name": body.name, "new": True}
         except sqlite3.IntegrityError:  # registered by a request that raced this one
             row = db.participant_by_roll(body.roll)
-    db.add_session(row["id"], token)
-    return {"token": token, "id": row["id"], "roll": row["roll"], "name": row["name"], "new": False}
+    return {"token": row["roll"], "id": row["id"], "roll": row["roll"], "name": row["name"], "new": False}
 
 
 # --- participant -------------------------------------------------------------------------
@@ -384,20 +384,36 @@ async def clean(body: CleanBody, p=Depends(participant)):
     if used >= settings.AI_MAX_PER_PARTICIPANT:
         raise HTTPException(429, f"you've used all {settings.AI_MAX_PER_PARTICIPANT} AI cleanups; "
                                  "you can still edit the code yourself")
+    # Strip starter comments before sending to the LLM (saves characters and prompt tokens)
+    pseudocode = body.pseudocode
+    if STARTER_COMMENTS:
+        if STARTER_COMMENTS in pseudocode:
+            pseudocode = pseudocode.replace(STARTER_COMMENTS, "").strip()
+        elif "play() is called" in pseudocode and "def play" in pseudocode:
+            pseudocode = pseudocode[pseudocode.find("def play"):].strip()
+    if not pseudocode:
+        pseudocode = "return RELOAD"
+
     spent = await run_in_threadpool(lambda: (db.ai_spent(), db.ai_spent(p["id"])))
-    budget = _AIBudget(p["id"], body.pseudocode, *spent)
+    budget = _AIBudget(p["id"], pseudocode, *spent)
     with _OnePerParticipant(p["id"], "ai"), budget:
         _ai_rate_check(p["id"])
         start = time.perf_counter()
         try:
             result = await run_limited(_ai_slots, AI_QUEUE_WAIT_S,
                                        "lots of people are using the AI right now, try again in a minute",
-                                       ai.clean, body.pseudocode)
+                                       ai.clean, pseudocode)
         except ai.AIUnavailable as e:
             await run_in_threadpool(db.add_ai_request, p["id"], body.pseudocode, "unavailable",
                                     {"message": str(e)}, None, 0, 0, 0)
             raise HTTPException(503, str(e))
         ms = int((time.perf_counter() - start) * 1000)
+
+        # Attach starter comments back to the LLM's cleaned code
+        if result.status == "ok" and result.code and STARTER_COMMENTS:
+            if "play() is called" not in result.code:
+                result.code = f"{STARTER_COMMENTS}\n\n{result.code.lstrip()}"
+
         public = result.public()
         # Logged before the reservation is released, so the spend is never counted as free.
         await run_in_threadpool(db.add_ai_request, p["id"], body.pseudocode, result.status, public, result.raw,
@@ -432,17 +448,6 @@ def announce(body: AnnounceBody):
 @app.get("/api/admin/participants", dependencies=[Depends(admin)])
 def participants():
     return [dict(r) for r in db.list_participants()]
-
-
-@app.post("/api/admin/reset-token", dependencies=[Depends(admin)])
-def reset_token(body: RollBody):
-    """For a participant who lost their session (cleared browser, switched laptop)."""
-    row = db.participant_by_roll(body.roll.strip().upper())
-    if row is None:
-        raise HTTPException(404, "no participant with that roll number")
-    token = secrets.token_urlsafe(24)
-    db.set_token(row["id"], token)
-    return {"roll": row["roll"], "name": row["name"], "token": token}
 
 
 @app.get("/api/admin/entries", dependencies=[Depends(admin)])
@@ -494,6 +499,15 @@ class WebFiles(StaticFiles):
         response.headers["Cache-Control"] = ("public, max-age=31536000, immutable" if immutable
                                              else "no-cache")
         return response
+
+
+@app.get("/admin", response_class=FileResponse)
+@app.get("/admin/{path:path}", response_class=FileResponse)
+def admin_page():
+    index_file = WEB_DIR / "index.html"
+    if index_file.is_file():
+        return FileResponse(index_file)
+    raise HTTPException(404, "Website not built yet")
 
 
 if WEB_DIR.is_dir():

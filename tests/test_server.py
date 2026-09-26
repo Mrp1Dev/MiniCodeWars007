@@ -30,7 +30,7 @@ class Server(unittest.TestCase):
 
     def setUp(self):
         with db.connect() as c:
-            c.executescript("DELETE FROM ai_requests; DELETE FROM submissions; DELETE FROM sessions; "
+            c.executescript("DELETE FROM ai_requests; DELETE FROM submissions; "
                             "DELETE FROM participants; DELETE FROM event;")
 
     def register(self, roll="25B0001", name="Test Person"):
@@ -122,8 +122,6 @@ class Server(unittest.TestCase):
     def test_admin(self):
         self.assertEqual(self.c.get("/api/admin/participants").status_code, 401)
         self.register()
-        new = self.c.post("/api/admin/reset-token", json={"roll": "25b0001"}, headers=ADMIN).json()
-        self.assertEqual(self.c.get("/api/me", headers={"Authorization": f"Bearer {new['token']}"}).status_code, 200)
         self.c.post("/api/admin/announce", json={"message": "Lunch at 1"}, headers=ADMIN)
         self.assertEqual(self.c.get("/api/status").json()["announcement"], "Lunch at 1")
         rows = self.c.get("/api/admin/participants", headers=ADMIN).json()

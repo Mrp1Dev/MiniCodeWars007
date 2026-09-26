@@ -17,7 +17,7 @@ export default function Register({ status, onDone }) {
     setFields({});
     try {
       const r = await api("/api/register", { body: { roll, name }, token: null });
-      onDone(r.token);
+      onDone(r.roll);
     } catch (err) {
       setError(err.message);
       setFields(err.fields || {});
@@ -62,8 +62,8 @@ export default function Register({ status, onDone }) {
             {!busy && <IconSend />}
           </button>
           <p className="signin-hint">
-            Switching laptops? Sign in with the same roll number; your submitted bot comes with you.
-            {phase && !["registration", "coding"].includes(phase) && " New sign-ups are closed right now."}
+            Your bot drafts and submissions are saved locally in this browser.
+            {phase && !["registration", "coding"].includes(phase) && " New registrations are closed right now."}
           </p>
         </form>
       </div>
