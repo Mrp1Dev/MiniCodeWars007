@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS ai_requests (
     id                 INTEGER PRIMARY KEY,
     participant_id     INTEGER NOT NULL REFERENCES participants(id),
     pseudocode         TEXT NOT NULL,
-    status             TEXT NOT NULL,       -- ok | clarify | not_pseudocode | error | unavailable
+    status             TEXT NOT NULL,       -- ok | declined | error | unavailable
     response           TEXT NOT NULL,       -- JSON sent to the participant
     raw                TEXT,                -- model output, for tuning the prompt
     prompt_tokens      INTEGER NOT NULL DEFAULT 0,

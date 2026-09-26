@@ -18,6 +18,7 @@ from typing import Literal, Optional
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
 from engine.botapi import MAX_SOURCE_CHARS, check_source
@@ -28,6 +29,7 @@ from .matches import CFG, HOUSE_BOTS, VALIDATION_OPPONENTS, test_match, validate
 SUBMIT_GRACE_S = 15  # submissions sent just before the deadline still count
 PHASES = ("registration", "coding", "locked", "tournament")
 ADMIN_KEY_FILE = db.DB_PATH.parent / "admin_key.txt"
+WEB_DIR = settings.ROOT / "web"
 
 
 def _admin_key():
@@ -318,10 +320,9 @@ async def submit(body: SubmitBody, p=Depends(participant)):
 @app.post("/api/clean")
 async def clean(body: CleanBody, p=Depends(participant)):
     """Translates pseudocode into bot code. Returns one of:
-      {"status": "ok", "code", "notes": [...]}
-      {"status": "clarify", "issues": [{"quote", "problem", "hint"}]}   (no code; reword and retry)
-      {"status": "not_pseudocode", "message"}
-      {"status": "error", "message"}                                     (try again)
+      {"status": "ok", "code"}
+      {"status": "declined", "issues": [{"quote", "reason"}]}   (no code; the pseudocode needs work)
+      {"status": "error", "message"}                             (the AI misbehaved; try again)
     plus "remaining": how many cleanups this participant has left.
     """
     await run_in_threadpool(require_phase, "registration", "coding")
@@ -402,3 +403,10 @@ def ai_usage():
 def ai_requests(status: Optional[str] = None, limit: int = 100):
     """Recent AI requests with the raw model output, for checking and tuning the prompt."""
     return [dict(r) for r in db.ai_requests(min(limit, 1000), status)]
+
+
+# --- website ---------------------------------------------------------------------------
+# Everything in web/ is served at /, so the site and the API share one origin.
+# Mounted last so it never shadows /api or /docs.
+if WEB_DIR.is_dir():
+    app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")

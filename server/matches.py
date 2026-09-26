@@ -20,12 +20,12 @@ def _load_house_bots():
     bots = {}
     for path in sorted(BOTS_DIR.glob("*.py")):
         source = path.read_text(encoding="utf-8")
-        first = source.splitlines()[0] if source else ""
-        bots[path.stem] = {
-            "name": path.stem,
-            "description": first.lstrip("# ").strip() if first.startswith("#") else "",
-            "source": source,
-        }
+        header = []  # the comment block at the top of the file
+        for line in source.splitlines():
+            if not line.startswith("#"):
+                break
+            header.append(line.lstrip("# ").strip())
+        bots[path.stem] = {"name": path.stem, "description": " ".join(header), "source": source}
     return bots
 
 

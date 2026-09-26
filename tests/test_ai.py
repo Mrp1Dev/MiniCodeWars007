@@ -22,24 +22,19 @@ def play(me, opp, turn, memory):
     # else shoot
     return SHOOT
 ```
-</code>
-<notes>
-- Nothing to note.
-- Second note.
-</notes>"""
+</code>"""
 
-CLARIFY_ANSWER = """<think>They want hidden info.</think>
-<status>clarify</status>
-<issue><quote>if front guy has no shield left</quote><problem>Can't see their shields.</problem><hint>Use opp.history.</hint></issue>
-<issue><quote>x</quote><problem></problem><hint>dropped: no problem given</hint></issue>"""
+DECLINED_ANSWER = """<think>They want hidden info.</think>
+<status>declined</status>
+<issue><quote>if front guy has no shield left</quote><reason>Can't see their shields.</reason></issue>
+<issue><quote>x</quote><reason></reason></issue>"""
 
 UNSAFE_ANSWER = """<status>ok</status>
 <code>
 import os
 def play(me, opp, turn, memory):
     return RELOAD
-</code>
-<notes></notes>"""
+</code>"""
 
 
 class FakeClient:
@@ -55,8 +50,12 @@ class FakeClient:
         answer = self.answers.pop(0)
         if isinstance(answer, Exception):
             raise answer
-        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=answer))],
-                               usage=SimpleNamespace(prompt_tokens=100, completion_tokens=50))
+        finish = "stop"
+        if answer is None:  # a thinking model that ran out of tokens mid-thought
+            answer, finish = "", "length"
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=answer), finish_reason=finish)],
+            usage=SimpleNamespace(prompt_tokens=100, completion_tokens=50))
 
 
 class Parsing(unittest.TestCase):
@@ -65,19 +64,18 @@ class Parsing(unittest.TestCase):
         self.assertEqual(r.status, "ok")
         self.assertTrue(r.code.startswith("def play"))
         self.assertNotIn("```", r.code)
-        self.assertEqual(r.notes, ["Nothing to note.", "Second note."])
 
-    def test_clarify_ignores_thinking_and_empty_issues(self):
-        r = ai.parse(CLARIFY_ANSWER)
-        self.assertEqual(r.status, "clarify")
+    def test_declined_ignores_thinking_and_empty_issues(self):
+        r = ai.parse(DECLINED_ANSWER)
+        self.assertEqual(r.status, "declined")
         self.assertEqual(len(r.issues), 1)
         self.assertEqual(r.issues[0]["quote"], "if front guy has no shield left")
         self.assertEqual(r.code, "")
 
-    def test_not_pseudocode_and_garbage(self):
-        self.assertEqual(ai.parse("<status>not_pseudocode</status><problem>Hi!</problem>").message, "Hi!")
+    def test_garbage(self):
         self.assertEqual(ai.parse("Sure! Here's a great bot: ...").status, "error")
-        self.assertEqual(ai.parse("<status>clarify</status>").status, "error", "clarify without issues")
+        self.assertEqual(ai.parse("<status>declined</status>").status, "error", "declined without issues")
+        self.assertEqual(ai.parse("<status>ok</status><code>\n</code>").status, "error", "ok without code")
 
     def test_prompt_mentions_current_rules(self):
         self.assertIn("NOT AVAILABLE", ai.SYSTEM_PROMPT)
@@ -92,17 +90,16 @@ class Cleaning(unittest.TestCase):
         self.assertEqual(client.calls[0]["messages"][0]["content"], ai.SYSTEM_PROMPT)
         self.assertIn("if i have no ammo", client.calls[0]["messages"][1]["content"])
 
-    def test_unsafe_code_is_repaired_once(self):
+    def test_unsafe_code_is_an_error_without_retry(self):
         client = FakeClient(UNSAFE_ANSWER, OK_ANSWER)
         r = ai.clean("reload forever", client)
-        self.assertEqual(r.status, "ok")
-        self.assertEqual((r.prompt_tokens, len(client.calls)), (200, 2))
-        self.assertIn("import 'os'", client.calls[1]["messages"][-1]["content"])
+        self.assertEqual((r.status, r.code, len(client.calls)), ("error", "", 1))
+        self.assertIn("import 'os'", r.message)
 
-    def test_unsafe_code_twice_is_an_error(self):
-        r = ai.clean("reload forever", FakeClient(UNSAFE_ANSWER, UNSAFE_ANSWER))
+    def test_ran_out_of_thinking_tokens(self):
+        r = ai.clean("reload forever", FakeClient(None))
         self.assertEqual(r.status, "error")
-        self.assertEqual(r.code, "")
+        self.assertIn("ran out of room", r.message)
 
     def test_service_failure(self):
         with self.assertRaises(ai.AIUnavailable):
@@ -135,17 +132,17 @@ class Endpoint(unittest.TestCase):
         return self.c.post("/api/clean", json={"pseudocode": text}, headers=self.auth)
 
     def test_ok_is_logged(self):
-        ai._client = FakeClient(OK_ANSWER, CLARIFY_ANSWER)
+        ai._client = FakeClient(OK_ANSWER, DECLINED_ANSWER)
         r = self.post()
         self.assertEqual(r.status_code, 200, r.text)
         body = r.json()
         self.assertEqual(body["status"], "ok")
         self.assertEqual(body["remaining"], settings.AI_MAX_PER_PARTICIPANT - 1)
-        self.assertEqual(self.post().json()["status"], "clarify")
+        self.assertEqual(self.post().json()["status"], "declined")
 
         usage = self.c.get("/api/admin/ai-usage", headers={"X-Admin-Key": "test-admin"}).json()
         self.assertEqual((usage["requests"], usage["completion_tokens"]), (2, 100))
-        log = self.c.get("/api/admin/ai-requests?status=clarify", headers={"X-Admin-Key": "test-admin"}).json()
+        log = self.c.get("/api/admin/ai-requests?status=declined", headers={"X-Admin-Key": "test-admin"}).json()
         self.assertEqual(len(log), 1)
         self.assertIn("<think>", log[0]["raw"])
 

@@ -57,7 +57,7 @@ python -m venv .venv
 
 Settings live in `.env` (copy `.env.example`); real environment variables override it. The admin key is printed at startup. If `MCW_ADMIN_KEY` is empty, a key is generated into `data/admin_key.txt`.
 
-On WSL: run the server as a normal user, not root, because root ignores the process limit on bot processes. Keep the project on the Linux filesystem (e.g. `~/MiniCodeWars`), not under `/mnt/c` or `/mnt/f`; starting processes from there is much slower.
+The target platform is Windows; the Linux parts of the sandbox exist but are untested. The website lives in `web/` and is served at `/` (see [docs/WEBSITE_HANDOFF.md](docs/WEBSITE_HANDOFF.md)).
 
 | Endpoint | Who | What |
 |---|---|---|
@@ -69,7 +69,7 @@ On WSL: run the server as a normal user, not root, because root ignores the proc
 | `GET /api/me` | participant | profile, current entry, submission list |
 | `POST /api/check` `{code}` | participant | static check only (fast) |
 | `POST /api/test` `{code, opponent, seed?}` | participant | one sandboxed match vs a house bot or `"mirror"`, returns the replay |
-| `POST /api/clean` `{pseudocode}` | participant | AI translation: `ok` + `code` + `notes`, or `clarify` + `issues`, or `not_pseudocode` / `error` |
+| `POST /api/clean` `{pseudocode}` | participant | AI translation: `ok` + `code`, or `declined` + `issues`, or `error` |
 | `POST /api/submit` `{code, pseudocode?}` | participant | validate (3 matches vs house bots) and store; only during `coding` |
 | `GET /api/submissions/{id}` | participant | one of your own submissions |
 | `POST /api/admin/phase` `{phase, minutes?}` | admin | `registration` / `coding` (+ timer) / `locked` / `tournament` |
@@ -85,7 +85,7 @@ A participant's entry is their latest submission that wasn't `rejected`. A `warn
 
 ## Clean code with AI
 
-`server/ai.py` translates pseudocode into bot code. It never writes strategy for the participant. It asks for clarification when a step is a goal ("play the best move"), or when it needs something the bot can't see and the participant didn't say how to work it out ("if the opponent has no shields left"). It also never adds a fallback move the participant didn't write. The returned code has to pass the same safety check as submissions, with one automatic repair attempt if it doesn't.
+`server/ai.py` translates pseudocode into bot code, or declines and says which parts it can't translate. It declines goals ("play the best move") and anything that needs information the bot can't see without the participant saying how to work it out ("if the opponent has no shields left"). It never adds strategy or a fallback move the participant didn't write. Code that fails the submission safety check is declined too; there's no retry. The model thinks before answering, and the thinking counts towards `MCW_AI_MAX_TOKENS`, so keep that generous (16000).
 
 Limits: `MCW_AI_CONCURRENCY` (calls at once, queued beyond that), `MCW_AI_PER_MINUTE` and `MCW_AI_MAX_PER_PARTICIPANT`. Every request is logged with the raw model output (`/api/admin/ai-requests`).
 

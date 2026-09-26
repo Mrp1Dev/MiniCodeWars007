@@ -36,8 +36,8 @@ MAX_PARALLEL_MATCHES = int(get("MCW_MAX_PARALLEL_MATCHES", max(2, (os.cpu_count(
 AI_BASE_URL = get("MCW_AI_BASE_URL", "https://api.featherless.ai/v1")
 AI_API_KEY = get("MCW_AI_API_KEY")
 AI_MODEL = get("MCW_AI_MODEL", "deepseek-ai/DeepSeek-V4-Flash-0731")
-AI_MAX_TOKENS = int(get("MCW_AI_MAX_TOKENS", 4096))
-AI_TIMEOUT_S = float(get("MCW_AI_TIMEOUT_S", 90))
-AI_CONCURRENCY = int(get("MCW_AI_CONCURRENCY", 4))
+AI_MAX_TOKENS = int(get("MCW_AI_MAX_TOKENS", 16000))  # thinking counts too; too low = empty answers
+AI_TIMEOUT_S = float(get("MCW_AI_TIMEOUT_S", 180))
+AI_CONCURRENCY = int(get("MCW_AI_CONCURRENCY", 10))
 AI_PER_MINUTE = int(get("MCW_AI_PER_MINUTE", 4))
 AI_MAX_PER_PARTICIPANT = int(get("MCW_AI_MAX_PER_PARTICIPANT", 60))
