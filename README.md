@@ -42,28 +42,68 @@ python -m engine smart turtle                  # one match, turn by turn
 python -m engine smart turtle --show-output    # include the bots' print() output
 python -m engine smart turtle --games 500      # win counts over many seeds
 python -m engine smart turtle --replay r.json  # save the replay
-python -m engine --round-robin bots            # every bot vs every other
+python -m engine --round-robin bots/extra      # every bot in a folder vs every other
 python -m engine mybot.py smart --sandbox      # run bots the way the server does
 ```
 
-## Server
+## Booting on event day (Windows)
 
-```bash
+Needs Python 3.11+ and Node.js 20+. One-time setup (needs internet: Python packages, the site's npm packages and Pyodide):
+
+```powershell
 python -m venv .venv
-.venv/Scripts/pip install -r requirements.txt
-.venv/Scripts/python -m server                 # port 8000, API docs at /docs
-.venv/Scripts/python -m unittest discover tests
+.venv\Scripts\pip install -r requirements.txt
+copy .env.example .env          # then put the AI key in .env
+cd site
+npm install
+npm run build                   # builds the website into ..\web (rerun after changing anything in site\)
+cd ..
 ```
+
+Every time:
+
+```powershell
+.venv\Scripts\python -m server  # website + API on port 8000; prints the admin key
+```
+
+- Participants open `http://<laptop's IP>:8000` (find the IP with `ipconfig`, under the Wi-Fi adapter). The first time
+  Windows asks, allow Python through the firewall on private networks.
+- Check it works from another device before people arrive, and have participants open the site during the briefing:
+  the in-browser tester (about 4 MB compressed, cached after the first visit) downloads in the background.
+- Tests: `.venv\Scripts\python -m unittest discover tests`
 
 Settings live in `.env` (copy `.env.example`); real environment variables override it. The admin key is printed at startup. If `MCW_ADMIN_KEY` is empty, a key is generated into `data/admin_key.txt`.
 
-The target platform is Windows; the Linux parts of the sandbox exist but are untested. The website lives in `web/` and is served at `/` (see [docs/WEBSITE_HANDOFF.md](docs/WEBSITE_HANDOFF.md)).
+The target platform is Windows; the Linux parts of the sandbox exist but are untested.
+
+## Website
+
+The participant site is a React app in `site/` (Vite). `npm run build` writes it to `web/`, which the server serves at `/`
+(same origin as the API, so no CORS). The laptop only needs Node to build; the server itself doesn't use it.
+`web/` is build output and isn't committed.
+
+- **One editor** for pseudocode or Python. *Clean with AI* replaces it with the Python and shows what they wrote in a
+  panel on the right (with a button to put it back). If the AI declines, the phrases it couldn't translate are
+  highlighted in the editor. Drafts autosave in the browser.
+- **Test** plays a match in the browser with [Pyodide](https://pyodide.org) (the real `engine/` files, served by
+  `/api/engine-bundle`), so dry runs don't load the laptop or the Wi-Fi. Until Pyodide has loaded, or if it fails,
+  tests go to `/api/test`. A bot that gets stuck is killed after 8 s and that game is replayed on the server,
+  which shows the slow turn. Local and server replays are identical for the same seed.
+- **Submit**, the phase and countdown, and the announcement banner work as described in
+  [docs/WEBSITE_HANDOFF.md](docs/WEBSITE_HANDOFF.md).
+- Pyodide is copied from npm into `web/pyodide/<version>/`, nothing loads from a CDN. The build writes gzipped copies
+  of large files, which the server sends to browsers that accept gzip (Pyodide goes from 12 MB to 4 MB), and hashed or
+  versioned files are cached for a year.
+- Developing: run the server, then `npm run dev` in `site/` (http://localhost:5173, forwards `/api` to port 8000).
+
+## API
 
 | Endpoint | Who | What |
 |---|---|---|
 | `GET /api/status` | anyone | phase, `ends_at`, `server_time`, announcement |
 | `GET /api/rules` | anyone | game config |
-| `GET /api/house-bots` | anyone | test opponents (names and descriptions; code stays secret) |
+| `GET /api/house-bots` | anyone | test opponents: name, description and code |
+| `GET /api/engine-bundle` | anyone | engine source and game config, for test matches in the browser |
 | `GET /api/starter` | anyone | starter `code` and example `pseudocode` for the editor |
 | `POST /api/register` `{roll, name}` | anyone | returns a `token` (send it as `Authorization: Bearer ...`) |
 | `GET /api/me` | participant | profile, current entry, submission list |
@@ -85,7 +125,7 @@ A participant's entry is their latest submission that wasn't `rejected`. A `warn
 
 ## Clean code with AI
 
-`server/ai.py` translates pseudocode into bot code, or declines and says which parts it can't translate. It declines goals ("play the best move") and anything that needs information the bot can't see without the participant saying how to work it out ("if the opponent has no shields left"). It never adds strategy or a fallback move the participant didn't write. Code that fails the submission safety check is declined too; there's no retry. The model thinks before answering, and the thinking counts towards `MCW_AI_MAX_TOKENS` (6000; the most seen in testing was ~1600).
+`server/ai.py` translates pseudocode into bot code, or declines and says which parts it can't translate. It declines goals ("play the best move") and anything that needs information the bot can't see without the participant saying how to work it out ("if the opponent has no shields left"). It never adds strategy or a fallback move the participant didn't write. Participants can also press it on Python they wrote themselves: it then only fixes obvious slips (a rule indented under another rule's `return`, `=` for `==`, `"shoot"` for `SHOOT`, misspelt names) and keeps working code as it is. Code that fails the submission safety check is declined too; there's no retry. The model thinks before answering, and the thinking counts towards `MCW_AI_MAX_TOKENS` (6000; the most seen in testing was ~1600).
 
 Spending is capped in "output-equivalent" tokens (output + input/2):
 - a typical call is about 1,300;
@@ -119,4 +159,7 @@ Each participant bot runs in its own process (`engine/sandbox.py`), with several
 - `engine/sandbox.py`, `engine/sandbox_worker.py`: running bots in separate processes
 - `server/`: FastAPI app (`app.py`), SQLite (`db.py`), running matches (`matches.py`), AI translator (`ai.py`), settings (`settings.py`)
 - `starter/`: what participants start with
-- `bots/`: house bots
+- `bots/`: house bots, the test opponents. Participants can read them (the browser runs them), so keep them simple.
+  Submissions are checked against all of them.
+- `bots/extra/`: stronger bots for us (the CLI finds them by name, e.g. `python -m engine smart turtle`)
+- `site/`: the website's source (React + Vite); `web/`: its build output

@@ -8,16 +8,19 @@ Participants authenticate with the token they get from /api/register
 import asyncio
 import collections
 import json
+import mimetypes
 import re
 import secrets
 import sqlite3
 import threading
 import time
+from pathlib import Path
 from typing import Literal, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
@@ -252,8 +255,24 @@ def rules():
 
 @app.get("/api/house-bots")
 def house_bots():
-    """Opponents you can test against. Their code stays secret."""
-    return [{"name": b["name"], "description": b["description"]} for b in HOUSE_BOTS.values()]
+    """Opponents you can test against, with their code (the browser plays test matches itself)."""
+    return [{"name": b["name"], "description": b["description"], "code": b["source"]} for b in HOUSE_BOTS.values()]
+
+
+# The engine files the browser needs to run matches with Pyodide (no sandbox: it's their own laptop).
+ENGINE_FILES = ("__init__.py", "botapi.py", "config.py", "match.py", "rules.py")
+ENGINE_BUNDLE = {
+    "files": {f"engine/{name}": (settings.ROOT / "engine" / name).read_text(encoding="utf-8")
+              for name in ENGINE_FILES},
+    "config": CFG.raw,
+}
+
+
+@app.get("/api/engine-bundle")
+def engine_bundle():
+    """Engine source and game config, for local test matches in the browser. House bots come from
+    /api/house-bots."""
+    return ENGINE_BUNDLE
 
 
 STARTER = {
@@ -441,5 +460,34 @@ def ai_requests(status: Optional[str] = None, limit: int = 100):
 # --- website ---------------------------------------------------------------------------
 # Everything in web/ is served at /, so the site and the API share one origin.
 # Mounted last so it never shadows /api or /docs.
+
+# Windows takes MIME types from the registry, which often maps .js to text/plain and doesn't know
+# .wasm; browsers then refuse to run the site's modules and Pyodide.
+for _type, _ext in (("text/javascript", ".js"), ("text/javascript", ".mjs"), ("text/css", ".css"),
+                    ("application/wasm", ".wasm"), ("application/json", ".json"), ("image/svg+xml", ".svg"),
+                    ("application/zip", ".zip"), ("image/png", ".png")):
+    mimetypes.add_type(_type, _ext)
+
+
+class WebFiles(StaticFiles):
+    """Serves the precompressed file.gz next to a file when the browser accepts gzip (the build
+    writes them; Pyodide's wasm shrinks from ~10 MB to ~3 MB), and lets browsers cache files whose
+    names never change for different content (Vite's hashed assets, the versioned Pyodide folder)."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        if response.status_code != 200 or not isinstance(response, FileResponse):
+            return response
+        immutable = path.replace("\\", "/").startswith(("assets/", "pyodide/"))  # Windows gives \ paths
+        accepts = dict(scope["headers"]).get(b"accept-encoding", b"")
+        gz = Path(response.path + ".gz")
+        if b"gzip" in accepts and gz.is_file():
+            response = FileResponse(gz, media_type=response.media_type,
+                                    headers={"Content-Encoding": "gzip", "Vary": "Accept-Encoding"})
+        response.headers["Cache-Control"] = ("public, max-age=31536000, immutable" if immutable
+                                             else "no-cache")
+        return response
+
+
 if WEB_DIR.is_dir():
-    app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
+    app.mount("/", WebFiles(directory=WEB_DIR, html=True), name="web")

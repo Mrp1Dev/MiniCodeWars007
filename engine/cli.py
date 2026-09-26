@@ -4,7 +4,8 @@
   python -m engine BOT_A BOT_B --games 200     win/draw summary over many seeds
   python -m engine --round-robin bots          every bot in a folder vs every other
 
-A bot is a path to a .py file, or the name of a file in bots/ (e.g. "turtle").
+A bot is a path to a .py file, or the name of a file in bots/ or bots/extra/ (e.g. "turtle").
+bots/ holds the house bots participants test against; bots/extra/ holds stronger bots for us.
 """
 import argparse
 import json
@@ -24,10 +25,11 @@ def resolve_bot_path(arg):
     p = Path(arg)
     if p.is_file():
         return p
-    q = BOTS_DIR / (arg if arg.endswith(".py") else arg + ".py")
-    if q.is_file():
-        return q
-    sys.exit(f"error: no bot file {arg!r} (also looked for {q})")
+    name = arg if arg.endswith(".py") else arg + ".py"
+    for q in (BOTS_DIR / name, BOTS_DIR / "extra" / name):
+        if q.is_file():
+            return q
+    sys.exit(f"error: no bot file {arg!r} (also looked in {BOTS_DIR} and {BOTS_DIR / 'extra'})")
 
 
 class BotSource:

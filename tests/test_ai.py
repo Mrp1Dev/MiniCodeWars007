@@ -193,11 +193,11 @@ class Endpoint(unittest.TestCase):
         self.c.post("/api/admin/phase", json={"phase": "tournament"}, headers={"X-Admin-Key": "test-admin"})
         self.assertEqual(self.post().status_code, 403)
 
-    def test_starter_and_hidden_house_bots(self):
+    def test_starter_and_house_bots(self):
         starter = self.c.get("/api/starter").json()
         self.assertIn("def play", starter["code"])
         bots = self.c.get("/api/house-bots").json()
-        self.assertTrue(bots and all(set(b) == {"name", "description"} for b in bots))
+        self.assertTrue(bots and all(set(b) == {"name", "description", "code"} for b in bots))
 
 
 if __name__ == "__main__":

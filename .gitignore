@@ -3,3 +3,5 @@
 data/
 __pycache__/
 *.pyc
+# built from site/ by `npm run build`
+web/

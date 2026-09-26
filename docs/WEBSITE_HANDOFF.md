@@ -1,5 +1,7 @@
 # Website handoff: participant site for MiniCodeWars 007
 
+> The participant site is now built (`site/`, see the README's "Website" section). This doc is still the API reference.
+
 Read this first if you're building the website. The game engine, sandbox, backend API and
 AI "clean code" feature are done and tested (`.venv/Scripts/python -m unittest discover tests`).
 The website is the missing piece.
@@ -83,11 +85,13 @@ Errors are always JSON with a `detail` field:
 `GET /api/rules` → `{"config": {...config.toml as JSON...}, "moves": ["RELOAD","SHIELD","SHOOT","SNIPE","COUNTER"]}`.
 Use this for numbers in a rules panel (HP, costs, etc.) instead of hardcoding them.
 
-`GET /api/house-bots` → the opponents for testing. **Their code is secret; only names and descriptions are sent.**
+`GET /api/house-bots` → the opponents for testing, with their code (the site runs test matches in the browser).
 ```json
-[{"name": "always_reload", "description": "Just keeps reloading. The easiest bot to beat."},
- {"name": "turtle", "description": "Hides behind the shield whenever the opponent could shoot."}, ...]
+[{"name": "always_reload", "description": "Just keeps reloading. The easiest bot to beat.", "code": "..."},
+ {"name": "random_bot", "description": "Picks a random move it can afford.", "code": "..."}, ...]
 ```
+
+`GET /api/engine-bundle` → `{"files": {"engine/botapi.py": "...", ...}, "config": {...}}`: the engine source for Pyodide.
 Opponent `"mirror"` (your bot vs itself) is also accepted by `/api/test`.
 
 `GET /api/starter` → `{"code": "...random-move bot...", "pseudocode": "every turn:\n    pick a random move ..."}`
@@ -136,12 +140,12 @@ The roll number is uppercased and must be letters and digits only (3–20 charac
 ```
 `line` can be `null`. An empty list means the code is allowed (it can still crash when run).
 
-`POST /api/test` `{"code": "...", "opponent": "turtle", "seed": 1}` → a replay (below). `seed` is optional
+`POST /api/test` `{"code": "...", "opponent": "random_bot", "seed": 1}` → a replay (below). `seed` is optional
 (random if omitted; send the same seed again to replay the same game). Takes well under a second normally.
 
 `POST /api/submit` `{"code": "...", "pseudocode": "..."}` (only in the `coding` phase) →
 ```json
-{"id": 1, "status": "ok", "accepted": true, "entry_id": 1, "checked_against": ["random_bot", "turtle", "smart"],
+{"id": 1, "status": "ok", "accepted": true, "entry_id": 1, "checked_against": ["always_reload", "random_bot", "trigger_happy"],
  "report": {
    "problems": [],
    "load_output": "",
@@ -175,7 +179,7 @@ The website chat may want to build a small organiser page for these:
 ## Replays (from `/api/test`; the tournament will produce the same format)
 
 ```json
-{"version": 1, "seed": 1, "names": ["you", "turtle"], "config": {...},
+{"version": 1, "seed": 1, "names": ["you", "random_bot"], "config": {...},
  "turns": [
    {"turn": 3,
     "requested": ["SNIPE", "SHIELD"],        // what each bot returned
@@ -244,6 +248,6 @@ def play(me, opp, turn, memory):
 - `engine/`: game rules, match runner, sandbox (don't need to touch)
 - `server/app.py`: every endpoint above; `server/ai.py`: the AI prompt; `server/settings.py`: settings
 - `starter/`: the starter bot and pseudocode served by `/api/starter`
-- `bots/`: house bots (secret from participants)
+- `bots/`: house bots (public test opponents); `bots/extra/`: stronger bots, not served
 - `config.toml`: game numbers
 - `web/`: **the website goes here**

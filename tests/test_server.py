@@ -74,7 +74,7 @@ class Server(unittest.TestCase):
         auth = self.register()
         ok = self.c.post("/api/submit", json={"code": GOOD, "pseudocode": "reload then snipe"}, headers=auth).json()
         self.assertEqual(ok["status"], "ok")
-        self.assertEqual([m["opponent"] for m in ok["report"]["matches"]], ["random_bot", "turtle", "smart"])
+        self.assertEqual([m["opponent"] for m in ok["report"]["matches"]], ["always_reload", "random_bot", "trigger_happy"])
 
         bad = self.c.post("/api/submit", json={"code": "import os\n" + GOOD}, headers=auth).json()
         self.assertEqual(bad["status"], "rejected")
@@ -99,11 +99,11 @@ class Server(unittest.TestCase):
 
     def test_test_match(self):
         auth = self.register()
-        r = self.c.post("/api/test", json={"code": GOOD, "opponent": "turtle", "seed": 5}, headers=auth)
+        r = self.c.post("/api/test", json={"code": GOOD, "opponent": "random_bot", "seed": 5}, headers=auth)
         self.assertEqual(r.status_code, 200, r.text)
         rep = r.json()
-        self.assertEqual(rep["names"], ["you", "turtle"])
-        again = self.c.post("/api/test", json={"code": GOOD, "opponent": "turtle", "seed": 5}, headers=auth).json()
+        self.assertEqual(rep["names"], ["you", "random_bot"])
+        again = self.c.post("/api/test", json={"code": GOOD, "opponent": "random_bot", "seed": 5}, headers=auth).json()
         self.assertEqual([t["actions"] for t in again["turns"]], [t["actions"] for t in rep["turns"]])
         mirror = self.c.post("/api/test", json={"code": GOOD, "opponent": "mirror"}, headers=auth).json()
         self.assertEqual(mirror["names"], ["you", "mirror"])
@@ -128,8 +128,12 @@ class Server(unittest.TestCase):
 
     def test_public_info(self):
         bots = self.c.get("/api/house-bots").json()
-        self.assertIn("smart", [b["name"] for b in bots])
+        self.assertEqual([b["name"] for b in bots], ["always_reload", "random_bot", "trigger_happy"])
+        self.assertTrue(all("def play" in b["code"] for b in bots))
         self.assertIn("SNIPE", self.c.get("/api/rules").json()["moves"])
+        bundle = self.c.get("/api/engine-bundle").json()
+        self.assertIn("engine/botapi.py", bundle["files"])
+        self.assertEqual(bundle["config"]["game"]["start_hp"], 3)
 
 
 if __name__ == "__main__":

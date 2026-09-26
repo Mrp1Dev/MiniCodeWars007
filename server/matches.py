@@ -1,5 +1,8 @@
 """Runs matches for the server: participant code is sandboxed, house bots run in-process.
-These functions block; the app limits how many run at once."""
+These functions block; the app limits how many run at once.
+
+House bots are the .py files directly in bots/. Participants can see their code (the browser
+runs test matches itself with Pyodide), so keep them simple; stronger bots go in bots/extra/."""
 from pathlib import Path
 
 from engine import BotRunner, load_config, run_match
@@ -12,7 +15,7 @@ from . import settings
 CFG = load_config(settings.CONFIG_PATH)
 BOTS_DIR = Path(__file__).resolve().parent.parent / "bots"
 # Opponents a submission is checked against, one match each.
-VALIDATION_OPPONENTS = ("random_bot", "turtle", "smart")
+VALIDATION_OPPONENTS = ("always_reload", "random_bot", "trigger_happy")
 VALIDATION_SEED = 12345
 
 
