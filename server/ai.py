@@ -18,7 +18,7 @@ from engine.botapi import ALLOWED_MODULES, check_source
 from . import settings
 from .matches import CFG
 
-MAX_PSEUDOCODE_CHARS = 4000
+MAX_PSEUDOCODE_CHARS = 2000
 
 
 def _rules_text(cfg):
@@ -48,6 +48,7 @@ You are the "Clean code with AI" button at a beginner coding contest. The partic
 first-year college students; many have barely written a loop. Each writes pseudocode for a bot
 that plays the game 007, and you TRANSLATE it into Python. You are a translator, not a
 co-author: the strategy must be 100% the student's. Translating faithfully is the whole job.
+This is a quick, mechanical task: think briefly, then answer. Never write long explanations.
 
 # The game
 {_rules_text(CFG)}
@@ -180,6 +181,17 @@ class AIUnavailable(Exception):
     pass
 
 
+def cost(prompt_tokens, completion_tokens):
+    """Budget units ("output-equivalent" tokens): an input token costs half an output token."""
+    return completion_tokens + prompt_tokens / 2
+
+
+def worst_case_cost(pseudocode):
+    """The most one request can cost: a full-length answer plus a generous estimate of the input
+    (about 3 characters per token). Reserved before calling, so the budget can't be overshot."""
+    return cost((len(SYSTEM_PROMPT) + len(pseudocode)) / 3, settings.AI_MAX_TOKENS)
+
+
 _client = None
 
 
@@ -190,7 +202,7 @@ def _default_client():
             raise AIUnavailable("the AI isn't configured on the server (MCW_AI_API_KEY is empty)")
         from openai import OpenAI
         _client = OpenAI(base_url=settings.AI_BASE_URL, api_key=settings.AI_API_KEY,
-                         timeout=settings.AI_TIMEOUT_S, max_retries=1)
+                         timeout=settings.AI_TIMEOUT_S, max_retries=0)  # a retried timeout is paid twice
     return _client
 
 

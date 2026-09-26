@@ -123,10 +123,12 @@ class Endpoint(unittest.TestCase):
         app_module._ai_recent.clear()
         r = self.c.post("/api/register", json={"roll": "25B0009", "name": "AI Tester"})
         self.auth = {"Authorization": f"Bearer {r.json()['token']}"}
-        self.saved = (ai._client, settings.AI_PER_MINUTE, settings.AI_MAX_PER_PARTICIPANT)
+        self.saved = (ai._client, settings.AI_PER_MINUTE, settings.AI_MAX_PER_PARTICIPANT,
+                      settings.AI_TOKEN_BUDGET, settings.AI_TOKENS_PER_PARTICIPANT)
 
     def tearDown(self):
-        ai._client, settings.AI_PER_MINUTE, settings.AI_MAX_PER_PARTICIPANT = self.saved
+        (ai._client, settings.AI_PER_MINUTE, settings.AI_MAX_PER_PARTICIPANT,
+         settings.AI_TOKEN_BUDGET, settings.AI_TOKENS_PER_PARTICIPANT) = self.saved
 
     def post(self, text="if i have no ammo reload else shoot"):
         return self.c.post("/api/clean", json={"pseudocode": text}, headers=self.auth)
@@ -159,6 +161,27 @@ class Endpoint(unittest.TestCase):
         settings.AI_MAX_PER_PARTICIPANT = 3
         self.assertEqual(self.post().json()["remaining"], 0)
         self.assertEqual(self.post().status_code, 429)
+
+    def test_token_budgets_reserve_the_worst_case(self):
+        worst = ai.worst_case_cost("x" * 30)
+        self.assertGreater(worst, settings.AI_MAX_TOKENS)
+        ai._client = FakeClient(*[OK_ANSWER] * 5)  # each call really costs 50 + 100/2 = 100 units
+
+        # Room for exactly one worst case: the first call goes through, then there's no room left.
+        settings.AI_TOKENS_PER_PARTICIPANT = int(worst) + 50
+        self.assertEqual(self.post("x" * 30).status_code, 200)
+        self.assertAlmostEqual(db.ai_spent(), 100)
+        r = self.post("x" * 30)
+        self.assertEqual(r.status_code, 429)
+        self.assertIn("allowance", r.json()["detail"])
+
+        settings.AI_TOKENS_PER_PARTICIPANT = 10**9
+        settings.AI_TOKEN_BUDGET = int(worst) + 99  # 100 already spent
+        r = self.post("x" * 30)
+        self.assertEqual(r.status_code, 503)
+        self.assertIn("budget", r.json()["detail"])
+        usage = self.c.get("/api/admin/ai-usage", headers={"X-Admin-Key": "test-admin"}).json()
+        self.assertEqual((usage["spent"], usage["budget"]), (100, settings.AI_TOKEN_BUDGET))
 
     def test_unavailable(self):
         ai._client = FakeClient(ConnectionError("down"))

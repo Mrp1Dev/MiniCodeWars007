@@ -132,6 +132,34 @@ _ai_recent = collections.defaultdict(collections.deque)  # participant id -> req
 _ai_recent_lock = threading.Lock()
 
 
+class _AIBudget:
+    """Reserves a request's worst-case cost before calling the AI, so neither the event budget
+    nor a participant's budget can be overshot, even with many requests in flight."""
+    _lock = threading.Lock()
+    _reserved = collections.Counter()  # participant id -> reserved units ("all" = everyone)
+
+    def __init__(self, pid, pseudocode, spent_all, spent_mine):
+        self.pid = pid
+        self.amount = ai.worst_case_cost(pseudocode)
+        self.spent_all, self.spent_mine = spent_all, spent_mine
+
+    def __enter__(self):
+        spent_all, spent_mine = self.spent_all, self.spent_mine
+        with self._lock:
+            if spent_all + self._reserved["all"] + self.amount > settings.AI_TOKEN_BUDGET:
+                raise HTTPException(503, "the AI budget for this event is used up; "
+                                         "you can still edit your code by hand")
+            if spent_mine + self._reserved[self.pid] + self.amount > settings.AI_TOKENS_PER_PARTICIPANT:
+                raise HTTPException(429, "you've used up your AI allowance; you can still edit your code by hand")
+            self._reserved["all"] += self.amount
+            self._reserved[self.pid] += self.amount
+
+    def __exit__(self, *exc):
+        with self._lock:
+            self._reserved["all"] -= self.amount
+            self._reserved[self.pid] -= self.amount
+
+
 def _ai_rate_check(pid):
     now = time.time()
     with _ai_recent_lock:
@@ -330,7 +358,9 @@ async def clean(body: CleanBody, p=Depends(participant)):
     if used >= settings.AI_MAX_PER_PARTICIPANT:
         raise HTTPException(429, f"you've used all {settings.AI_MAX_PER_PARTICIPANT} AI cleanups; "
                                  "you can still edit the code yourself")
-    with _OnePerParticipant(p["id"], "ai"):
+    spent = await run_in_threadpool(lambda: (db.ai_spent(), db.ai_spent(p["id"])))
+    budget = _AIBudget(p["id"], body.pseudocode, *spent)
+    with _OnePerParticipant(p["id"], "ai"), budget:
         _ai_rate_check(p["id"])
         start = time.perf_counter()
         try:
@@ -341,10 +371,11 @@ async def clean(body: CleanBody, p=Depends(participant)):
             await run_in_threadpool(db.add_ai_request, p["id"], body.pseudocode, "unavailable",
                                     {"message": str(e)}, None, 0, 0, 0)
             raise HTTPException(503, str(e))
-    ms = int((time.perf_counter() - start) * 1000)
-    public = result.public()
-    await run_in_threadpool(db.add_ai_request, p["id"], body.pseudocode, result.status, public, result.raw,
-                            result.prompt_tokens, result.completion_tokens, ms)
+        ms = int((time.perf_counter() - start) * 1000)
+        public = result.public()
+        # Logged before the reservation is released, so the spend is never counted as free.
+        await run_in_threadpool(db.add_ai_request, p["id"], body.pseudocode, result.status, public, result.raw,
+                                result.prompt_tokens, result.completion_tokens, ms)
     return {**public, "remaining": settings.AI_MAX_PER_PARTICIPANT - used - 1}
 
 
@@ -396,7 +427,9 @@ def entries():
 
 @app.get("/api/admin/ai-usage", dependencies=[Depends(admin)])
 def ai_usage():
-    return db.ai_usage()
+    """Usage so far. "spent" and "budget" are in output-equivalent tokens (output + input/2)."""
+    return {**db.ai_usage(), "budget": settings.AI_TOKEN_BUDGET,
+            "per_participant_budget": settings.AI_TOKENS_PER_PARTICIPANT}
 
 
 @app.get("/api/admin/ai-requests", dependencies=[Depends(admin)])

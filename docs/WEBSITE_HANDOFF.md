@@ -110,7 +110,7 @@ The roll number is uppercased and must be letters and digits only (3–20 charac
 
 `GET /api/submissions/{id}` → one of their own submissions: `{id, status, created_at, report, code, pseudocode}`.
 
-`POST /api/clean` `{"pseudocode": "..."}` (max 4000 characters; takes **2–20 s**, so show a spinner and disable the button) → one of:
+`POST /api/clean` `{"pseudocode": "..."}` (max **2000** characters, so show a character counter; takes **2–20 s**, so show a spinner and disable the button) → one of:
 ```json
 {"status": "ok", "code": "def play(me, opp, turn, memory):\n    if me.ammo == 0:\n        return RELOAD\n    return SHOOT\n",
  "issues": [], "message": "", "remaining": 59}
@@ -126,6 +126,9 @@ The roll number is uppercased and must be letters and digits only (3–20 charac
   empty when the whole text isn't a bot description).
 - `error`: show `message`; retrying is fine.
 - `remaining`: cleanups left (60 per person by default; 4 per minute). Show it when it gets low.
+- Each person also has a token allowance, and the event has a total AI budget. When either runs out, `/api/clean`
+  answers 429 ("you've used up your AI allowance") or 503 ("the AI budget for this event is used up"). The UI must
+  keep working without the AI: the code editor, test and submit don't need it.
 
 `POST /api/check` `{"code": "..."}` → instant static check, no running. Good for underlining lines in the editor as they type (debounce it):
 ```json
@@ -166,7 +169,7 @@ The website chat may want to build a small organiser page for these:
 | `GET /api/admin/participants` | | everyone: `id, roll, name, created_at, submissions, last_status, entry_id` |
 | `POST /api/admin/reset-token` | `{"roll": "25B0001"}` | new token for a participant who lost theirs |
 | `GET /api/admin/entries` | | every current entry with code |
-| `GET /api/admin/ai-usage` | | `{requests, prompt_tokens, completion_tokens, avg_ms, by_status}` |
+| `GET /api/admin/ai-usage` | | `{requests, prompt_tokens, completion_tokens, spent, budget, per_participant_budget, avg_ms, by_status}` (spent/budget in output-equivalent tokens = output + input/2) |
 | `GET /api/admin/ai-requests?status=declined&limit=50` | | recent AI calls with pseudocode, response and raw model output |
 
 ## Replays (from `/api/test`; the tournament will produce the same format)

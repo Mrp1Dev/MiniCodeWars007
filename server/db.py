@@ -176,6 +176,18 @@ def add_ai_request(participant_id, pseudocode, status, response, raw, prompt_tok
                    completion_tokens, ms, time.time()))
 
 
+_COST = "COALESCE(SUM(completion_tokens + prompt_tokens / 2.0), 0)"
+
+
+def ai_spent(participant_id=None):
+    """Budget units used so far (see ai.cost), by everyone or by one participant."""
+    with connect() as c:
+        if participant_id is None:
+            return c.execute(f"SELECT {_COST} FROM ai_requests").fetchone()[0]
+        return c.execute(f"SELECT {_COST} FROM ai_requests WHERE participant_id = ?",
+                         (participant_id,)).fetchone()[0]
+
+
 def ai_request_count(participant_id):
     """Counts requests that reached the model (not ones refused before sending)."""
     with connect() as c:
@@ -187,7 +199,7 @@ def ai_usage():
     with connect() as c:
         total = c.execute("SELECT COUNT(*) AS requests, COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens, "
                           "COALESCE(SUM(completion_tokens), 0) AS completion_tokens, "
-                          "COALESCE(AVG(ms), 0) AS avg_ms FROM ai_requests").fetchone()
+                          f"COALESCE(AVG(ms), 0) AS avg_ms, {_COST} AS spent FROM ai_requests").fetchone()
         by_status = c.execute("SELECT status, COUNT(*) AS n FROM ai_requests GROUP BY status").fetchall()
     return {**dict(total), "by_status": {r["status"]: r["n"] for r in by_status}}
 

@@ -85,7 +85,14 @@ A participant's entry is their latest submission that wasn't `rejected`. A `warn
 
 ## Clean code with AI
 
-`server/ai.py` translates pseudocode into bot code, or declines and says which parts it can't translate. It declines goals ("play the best move") and anything that needs information the bot can't see without the participant saying how to work it out ("if the opponent has no shields left"). It never adds strategy or a fallback move the participant didn't write. Code that fails the submission safety check is declined too; there's no retry. The model thinks before answering, and the thinking counts towards `MCW_AI_MAX_TOKENS`, so keep that generous (16000).
+`server/ai.py` translates pseudocode into bot code, or declines and says which parts it can't translate. It declines goals ("play the best move") and anything that needs information the bot can't see without the participant saying how to work it out ("if the opponent has no shields left"). It never adds strategy or a fallback move the participant didn't write. Code that fails the submission safety check is declined too; there's no retry. The model thinks before answering, and the thinking counts towards `MCW_AI_MAX_TOKENS` (6000; the most seen in testing was ~1600).
+
+Spending is capped in "output-equivalent" tokens (output + input/2):
+- a typical call is about 1,300;
+- `MCW_AI_TOKEN_BUDGET` (70M) caps the whole event;
+- `MCW_AI_TOKENS_PER_PARTICIPANT` (100k) caps each person.
+
+Before calling the model, each request reserves its worst case (a full-length answer plus its input), so neither cap can be overshot even with 10 calls in flight. Client retries are off, because a retried timeout gets paid twice. Pseudocode is limited to 2000 characters.
 
 Limits: `MCW_AI_CONCURRENCY` (calls at once, queued beyond that), `MCW_AI_PER_MINUTE` and `MCW_AI_MAX_PER_PARTICIPANT`. Every request is logged with the raw model output (`/api/admin/ai-requests`).
 
