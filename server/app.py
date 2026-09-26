@@ -184,6 +184,7 @@ Code = Field(max_length=MAX_SOURCE_CHARS)
 class RegisterBody(BaseModel):
     roll: str = Field(min_length=3, max_length=20)
     name: str = Field(min_length=1, max_length=60)
+    bot_name: str = Field(min_length=1, max_length=50)
 
     @field_validator("roll")
     @classmethod
@@ -199,6 +200,14 @@ class RegisterBody(BaseModel):
         v = " ".join(v.split())
         if not v:
             raise ValueError("name can't be empty")
+        return v
+
+    @field_validator("bot_name")
+    @classmethod
+    def clean_bot_name(cls, v):
+        v = " ".join(v.split())
+        if not v:
+            raise ValueError("bot name can't be empty")
         return v
 
 
@@ -292,17 +301,21 @@ def starter():
 
 @app.post("/api/register")
 def register(body: RegisterBody):
-    """Signs in with roll number + name. Identified directly by roll number in local browser storage;
+    """Signs in with roll number + name + bot_name. Identified directly by roll number in local browser storage;
     no crypto tokens or multi-laptop session tracking."""
     row = db.participant_by_roll(body.roll)
     if row is None:
         require_phase("registration", "coding")
         try:
-            pid = db.create_participant(body.roll, body.name)
-            return {"token": body.roll, "id": pid, "roll": body.roll, "name": body.name, "new": True}
+            pid = db.create_participant(body.roll, body.name, body.bot_name)
+            return {"token": body.roll, "id": pid, "roll": body.roll, "name": body.name, "bot_name": body.bot_name, "new": True}
         except sqlite3.IntegrityError:  # registered by a request that raced this one
             row = db.participant_by_roll(body.roll)
-    return {"token": row["roll"], "id": row["id"], "roll": row["roll"], "name": row["name"], "new": False}
+    else:
+        db.update_participant(row["id"], body.name, body.bot_name)
+        row = db.participant_by_roll(body.roll)
+    bot_name = row["bot_name"] if "bot_name" in row.keys() and row["bot_name"] else body.bot_name
+    return {"token": row["roll"], "id": row["id"], "roll": row["roll"], "name": row["name"], "bot_name": bot_name, "new": False}
 
 
 # --- participant -------------------------------------------------------------------------
@@ -319,8 +332,9 @@ def _submission_json(row, with_code=True):
 @app.get("/api/me")
 def me(p=Depends(participant)):
     entry = db.entry_of(p["id"])
+    bot_name = p["bot_name"] if "bot_name" in p.keys() and p["bot_name"] else p["name"]
     return {
-        "id": p["id"], "roll": p["roll"], "name": p["name"],
+        "id": p["id"], "roll": p["roll"], "name": p["name"], "bot_name": bot_name,
         "entry": _submission_json(entry) if entry else None,
         "submissions": [dict(r) for r in db.submissions_of(p["id"])],
     }

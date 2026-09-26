@@ -208,10 +208,12 @@ export default function Admin({ onExit }) {
   // Filtered Participants
   const filteredParticipants = useMemo(() => {
     return participants.filter((p) => {
+      const q = participantSearch.toLowerCase();
       const matchesSearch =
         !participantSearch ||
-        p.roll.toLowerCase().includes(participantSearch.toLowerCase()) ||
-        p.name.toLowerCase().includes(participantSearch.toLowerCase());
+        p.roll.toLowerCase().includes(q) ||
+        p.name.toLowerCase().includes(q) ||
+        (p.bot_name && p.bot_name.toLowerCase().includes(q));
       if (!matchesSearch) return false;
       if (participantFilter === "has_entry") return p.entry_id != null;
       if (participantFilter === "no_entry") return p.entry_id == null;
@@ -225,9 +227,11 @@ export default function Admin({ onExit }) {
   const filteredEntries = useMemo(() => {
     return entries.filter((e) => {
       if (!entriesSearch) return true;
+      const q = entriesSearch.toLowerCase();
       return (
-        e.roll.toLowerCase().includes(entriesSearch.toLowerCase()) ||
-        e.name.toLowerCase().includes(entriesSearch.toLowerCase())
+        e.roll.toLowerCase().includes(q) ||
+        e.name.toLowerCase().includes(q) ||
+        (e.bot_name && e.bot_name.toLowerCase().includes(q))
       );
     });
   }, [entries, entriesSearch]);
@@ -643,6 +647,7 @@ export default function Admin({ onExit }) {
                       <th style={{ width: "60px" }}>ID</th>
                       <th>Roll</th>
                       <th>Name</th>
+                      <th>Bot Name</th>
                       <th>Submissions</th>
                       <th>Entry Status</th>
                       <th>Registered</th>
@@ -651,7 +656,7 @@ export default function Admin({ onExit }) {
                   <tbody>
                     {filteredParticipants.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="center muted" style={{ padding: "30px" }}>
+                        <td colSpan={7} className="center muted" style={{ padding: "30px" }}>
                           No participants found.
                         </td>
                       </tr>
@@ -661,6 +666,7 @@ export default function Admin({ onExit }) {
                           <td className="faint">{p.id}</td>
                           <td><code>{p.roll}</code></td>
                           <td style={{ fontWeight: 550 }}>{p.name}</td>
+                          <td style={{ color: "var(--gold)" }}>{p.bot_name || "--"}</td>
                           <td>{p.submissions}</td>
                           <td>
                             {p.entry_id ? (
@@ -731,6 +737,7 @@ export default function Admin({ onExit }) {
                     <tr>
                       <th>Roll</th>
                       <th>Name</th>
+                      <th>Bot Name</th>
                       <th>Sub ID</th>
                       <th>Status</th>
                       <th>Submitted At</th>
@@ -740,7 +747,7 @@ export default function Admin({ onExit }) {
                   <tbody>
                     {filteredEntries.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="center muted" style={{ padding: "30px" }}>
+                        <td colSpan={7} className="center muted" style={{ padding: "30px" }}>
                           No tournament entries submitted yet.
                         </td>
                       </tr>
@@ -749,6 +756,7 @@ export default function Admin({ onExit }) {
                         <tr key={e.submission_id}>
                           <td><code>{e.roll}</code></td>
                           <td style={{ fontWeight: 550 }}>{e.name}</td>
+                          <td style={{ color: "var(--gold)" }}>{e.bot_name || "--"}</td>
                           <td className="faint">#{e.submission_id}</td>
                           <td>
                             <span className={`admin-badge badge-${e.status}`}>

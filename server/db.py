@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS participants (
     id          INTEGER PRIMARY KEY,
     roll        TEXT NOT NULL UNIQUE,
     name        TEXT NOT NULL,
+    bot_name    TEXT,
     token_hash  TEXT,
     created_at  REAL NOT NULL
 );
@@ -61,6 +62,10 @@ def connect():
                 conn.execute("PRAGMA journal_mode=WAL")
                 conn.executescript(SCHEMA)
                 conn.execute("DROP TABLE IF EXISTS sessions")
+                # Auto-migrate participants table if bot_name column is missing
+                cols = [r["name"] for r in conn.execute("PRAGMA table_info(participants)").fetchall()]
+                if "bot_name" not in cols:
+                    conn.execute("ALTER TABLE participants ADD COLUMN bot_name TEXT")
                 _initialised = True
         with conn:  # commits, or rolls back on error
             yield conn
@@ -90,11 +95,21 @@ def set_event(**values):
 
 # --- participants ------------------------------------------------------------------
 
-def create_participant(roll, name, token=None):
+def create_participant(roll, name, bot_name=None, token=None):
     with connect() as c:
-        cur = c.execute("INSERT INTO participants(roll, name, token_hash, created_at) VALUES(?, ?, ?, ?)",
-                        (roll, name, roll, time.time()))
+        cur = c.execute("INSERT INTO participants(roll, name, bot_name, token_hash, created_at) VALUES(?, ?, ?, ?, ?)",
+                        (roll, name, bot_name or name, roll, time.time()))
         return cur.lastrowid
+
+
+def update_participant(pid, name=None, bot_name=None):
+    with connect() as c:
+        if name and bot_name:
+            c.execute("UPDATE participants SET name = ?, bot_name = ? WHERE id = ?", (name, bot_name, pid))
+        elif name:
+            c.execute("UPDATE participants SET name = ? WHERE id = ?", (name, pid))
+        elif bot_name:
+            c.execute("UPDATE participants SET bot_name = ? WHERE id = ?", (bot_name, pid))
 
 
 def participant_by_token(token):
@@ -109,7 +124,7 @@ def participant_by_roll(roll):
 def list_participants():
     with connect() as c:
         return c.execute("""
-            SELECT p.id, p.roll, p.name, p.created_at,
+            SELECT p.id, p.roll, p.name, p.bot_name, p.created_at,
                    COUNT(s.id) AS submissions,
                    (SELECT status FROM submissions WHERE participant_id = p.id ORDER BY id DESC LIMIT 1) AS last_status,
                    (SELECT MAX(id) FROM submissions WHERE participant_id = p.id AND status != 'rejected') AS entry_id
@@ -150,7 +165,7 @@ def entry_of(participant_id):
 def all_entries():
     with connect() as c:
         return c.execute("""
-            SELECT p.roll, p.name, s.id AS submission_id, s.status, s.code, s.created_at
+            SELECT p.roll, p.name, p.bot_name, s.id AS submission_id, s.status, s.code, s.created_at
             FROM participants p JOIN submissions s ON s.id = (
                 SELECT MAX(id) FROM submissions WHERE participant_id = p.id AND status != 'rejected')
             ORDER BY p.id

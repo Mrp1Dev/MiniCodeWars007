@@ -1,4 +1,4 @@
-// Sign in: roll number + name. A new roll number registers; a known one signs straight back in.
+// Sign in: roll number + name + bot name. All 3 are required.
 import { useState } from "react";
 import { api } from "../api";
 import { IconSend } from "./icons";
@@ -6,17 +6,22 @@ import { IconSend } from "./icons";
 export default function Register({ status, onDone }) {
   const [roll, setRoll] = useState("");
   const [name, setName] = useState("");
+  const [botName, setBotName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [fields, setFields] = useState({});
 
   async function submit(e) {
     e.preventDefault();
+    if (!roll.trim() || !name.trim() || !botName.trim()) return;
     setBusy(true);
     setError("");
     setFields({});
     try {
-      const r = await api("/api/register", { body: { roll, name }, token: null });
+      const r = await api("/api/register", {
+        body: { roll: roll.trim(), name: name.trim(), bot_name: botName.trim() },
+        token: null,
+      });
       onDone(r.roll);
     } catch (err) {
       setError(err.message);
@@ -27,6 +32,7 @@ export default function Register({ status, onDone }) {
   }
 
   const phase = status ? status.phase : null;
+  const canSubmit = !busy && roll.trim() && name.trim() && botName.trim();
 
   return (
     <div className="signin">
@@ -45,18 +51,24 @@ export default function Register({ status, onDone }) {
         <form onSubmit={submit} className="signin-form" noValidate>
           <label className="field">
             <span>Roll number</span>
-            <input autoFocus value={roll} onChange={(e) => setRoll(e.target.value)} placeholder="25B0001"
+            <input autoFocus required value={roll} onChange={(e) => setRoll(e.target.value)} placeholder="25B0001"
               className={fields.roll ? "invalid" : ""} autoComplete="off" spellCheck={false} />
             {fields.roll && <em>{fields.roll}</em>}
           </label>
           <label className="field">
             <span>Name</span>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name"
+            <input required value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name"
               className={fields.name ? "invalid" : ""} autoComplete="off" />
             {fields.name && <em>{fields.name}</em>}
           </label>
+          <label className="field">
+            <span>Bot Name</span>
+            <input required value={botName} onChange={(e) => setBotName(e.target.value)} placeholder="e.g. Agent 007 or ShadowSniper"
+              className={fields.bot_name ? "invalid" : ""} autoComplete="off" maxLength={50} />
+            {fields.bot_name && <em>{fields.bot_name}</em>}
+          </label>
           {error && !Object.keys(fields).length && <div className="note note-bad">{error}</div>}
-          <button className="btn btn-gold btn-block" disabled={busy || !roll.trim() || !name.trim()}>
+          <button className="btn btn-gold btn-block" disabled={!canSubmit}>
             {busy ? <span className="spinner" /> : null}
             {busy ? "Signing in" : "Enter"}
             {!busy && <IconSend />}

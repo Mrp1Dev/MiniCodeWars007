@@ -333,7 +333,10 @@ export default function Workspace({ me, status, offline, refreshStatus, refreshM
             </button>
             {menuOpen && (
               <div className="menu-pop" onMouseLeave={() => setMenuOpen(false)}>
-                <div className="menu-id"><b>{me.name}</b><span>{me.roll}</span></div>
+                <div className="menu-id">
+                  <b>{me.name}</b>
+                  <span>{me.bot_name ? `${me.bot_name} · ` : ""}{me.roll}</span>
+                </div>
                 <button className="menu-item" onClick={onSignOut}>Sign out</button>
               </div>
             )}
