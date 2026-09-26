@@ -82,10 +82,15 @@ The participant site is a React app in `site/` (Vite). `npm run build` writes it
 (same origin as the API, so no CORS). The laptop only needs Node to build; the server itself doesn't use it.
 `web/` is build output and isn't committed.
 
-- **One editor** for pseudocode or Python. *Clean with AI* replaces it with the Python and shows what they wrote in a
-  panel on the right (with a button to put it back). If the AI declines, the phrases it couldn't translate are
-  highlighted in the editor. Drafts autosave in the browser.
-- **Test** plays a match in the browser with [Pyodide](https://pyodide.org) (the real `engine/` files, served by
+- **Sign in** is roll number + name. A known roll number signs straight back in (another laptop, cleared browser),
+  so there are no tokens for participants to keep.
+- **One code editor**, starting from a `play()` template with the rules in comments. Participants write Python, or
+  plain English and press *Clean with AI*. Every clean is kept in the **History** panel (what they wrote, and the AI's
+  code), and any version opens back in the editor. Cleaning and opening a version are single undo steps, so Ctrl+Z /
+  Ctrl+Y move between them. If the AI declines, the phrases it couldn't translate are highlighted in the editor.
+  Drafts and history autosave in the browser.
+- **Syntax check** underlines Python errors as you type. It's off by default, since plain English would be all red.
+- **Run match** (or Ctrl+Enter) plays a practice match in the browser with [Pyodide](https://pyodide.org) (the real `engine/` files, served by
   `/api/engine-bundle`), so dry runs don't load the laptop or the Wi-Fi. Until Pyodide has loaded, or if it fails,
   tests go to `/api/test`. A bot that gets stuck is killed after 8 s and that game is replayed on the server,
   which shows the slow turn. Local and server replays are identical for the same seed.
@@ -105,7 +110,7 @@ The participant site is a React app in `site/` (Vite). `npm run build` writes it
 | `GET /api/house-bots` | anyone | test opponents: name, description and code |
 | `GET /api/engine-bundle` | anyone | engine source and game config, for test matches in the browser |
 | `GET /api/starter` | anyone | starter `code` and example `pseudocode` for the editor |
-| `POST /api/register` `{roll, name}` | anyone | returns a `token` (send it as `Authorization: Bearer ...`) |
+| `POST /api/register` `{roll, name}` | anyone | sign in: registers a new roll number or signs in as an existing one; returns a `token` (send it as `Authorization: Bearer ...`) |
 | `GET /api/me` | participant | profile, current entry, submission list |
 | `POST /api/check` `{code}` | participant | static check only (fast) |
 | `POST /api/test` `{code, opponent, seed?}` | participant | one sandboxed match vs a house bot or `"mirror"`, returns the replay |

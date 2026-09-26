@@ -39,6 +39,13 @@ CREATE TABLE IF NOT EXISTS ai_requests (
     created_at         REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ai_by_participant ON ai_requests(participant_id, id);
+-- Extra logins: signing in again with a roll number adds a session, so every browser
+-- someone uses stays signed in. (participants.token_hash is the first one.)
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash      TEXT PRIMARY KEY,
+    participant_id  INTEGER NOT NULL REFERENCES participants(id),
+    created_at      REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS event (
     key    TEXT PRIMARY KEY,
     value  TEXT
@@ -101,8 +108,16 @@ def create_participant(roll, name, token):
 
 
 def participant_by_token(token):
+    h = hash_token(token)
     with connect() as c:
-        return c.execute("SELECT * FROM participants WHERE token_hash = ?", (hash_token(token),)).fetchone()
+        return c.execute("SELECT * FROM participants WHERE token_hash = ? OR id = "
+                         "(SELECT participant_id FROM sessions WHERE token_hash = ?)", (h, h)).fetchone()
+
+
+def add_session(participant_id, token):
+    with connect() as c:
+        c.execute("INSERT INTO sessions(token_hash, participant_id, created_at) VALUES(?, ?, ?)",
+                  (hash_token(token), participant_id, time.time()))
 
 
 def participant_by_roll(roll):

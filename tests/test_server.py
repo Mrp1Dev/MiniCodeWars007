@@ -30,7 +30,7 @@ class Server(unittest.TestCase):
 
     def setUp(self):
         with db.connect() as c:
-            c.executescript("DELETE FROM ai_requests; DELETE FROM submissions; "
+            c.executescript("DELETE FROM ai_requests; DELETE FROM submissions; DELETE FROM sessions; "
                             "DELETE FROM participants; DELETE FROM event;")
 
     def register(self, roll="25B0001", name="Test Person"):
@@ -47,7 +47,10 @@ class Server(unittest.TestCase):
         auth = self.register(roll=" 25b0001 ")
         me = self.c.get("/api/me", headers=auth).json()
         self.assertEqual((me["roll"], me["entry"]), ("25B0001", None))
-        self.assertEqual(self.c.post("/api/register", json={"roll": "25B0001", "name": "X"}).status_code, 409)
+        again = self.c.post("/api/register", json={"roll": "25b0001", "name": "someone else"}).json()
+        self.assertEqual((again["id"], again["name"], again["new"]), (me["id"], "Test Person", False))
+        self.assertEqual(self.c.get("/api/me", headers=auth).status_code, 200, "the first session still works")
+        self.assertEqual(self.c.get("/api/me", headers={"Authorization": f"Bearer {again['token']}"}).json()["id"], me["id"])
         self.assertEqual(self.c.get("/api/me", headers={"Authorization": "Bearer nope"}).status_code, 401)
         self.assertEqual(self.c.post("/api/register", json={"roll": "25B/01", "name": "X"}).status_code, 422)
 

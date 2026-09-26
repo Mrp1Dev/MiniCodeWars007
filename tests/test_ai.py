@@ -117,7 +117,7 @@ class Endpoint(unittest.TestCase):
 
     def setUp(self):
         with db.connect() as c:
-            c.executescript("DELETE FROM ai_requests; DELETE FROM submissions; "
+            c.executescript("DELETE FROM ai_requests; DELETE FROM submissions; DELETE FROM sessions; "
                             "DELETE FROM participants; DELETE FROM event;")
         from server import app as app_module
         app_module._ai_recent.clear()

@@ -29,10 +29,10 @@ The website is the missing piece.
 
 ## Participant flow
 
-1. **Register** with roll number + name, which returns a token. Store it in `localStorage`, and send it on every
-   request as `Authorization: Bearer <token>`. There's no password or login: if they lose the token (cleared browser,
-   switched laptop), an organiser resets it via the admin API and gives them the new token. Registering the same
-   roll number twice gives a 409. The site needs a way to **paste a token** to restore a session.
+1. **Sign in** with roll number + name (`POST /api/register`), which returns a token. Store it in `localStorage`, and
+   send it on every request as `Authorization: Bearer <token>`. There's no password: signing in again with a registered
+   roll number (on another laptop, after clearing the browser) gives a new token for the same participant, in any
+   phase, and older tokens keep working. New roll numbers can only register during `registration` and `coding`.
 2. **Write pseudocode.** Start from `GET /api/starter` (`pseudocode` + `code`).
 3. **Clean code with AI**: `POST /api/clean`. It either returns code, or **declines** and quotes the parts of their
    pseudocode it can't translate, each with a reason. Show those next to the pseudocode so they can fix and retry.
@@ -71,10 +71,9 @@ Errors are always JSON with a `detail` field:
 
 | Status | Meaning | What the site should do |
 |---|---|---|
-| 401 | no or unknown token | send them to register / paste token |
+| 401 | no or unknown token | send them back to the sign-in form |
 | 403 | not allowed in this phase (or time is up) | show message, refresh status |
 | 404 | unknown opponent or submission | shouldn't happen from the UI |
-| 409 | roll number already registered | "ask an organiser to recover your session" |
 | 429 | too many requests: one running job of a kind per person, AI per-minute and total limits | show message (it says when to retry) |
 | 503 | server busy / AI busy or unreachable | show message, let them retry |
 
@@ -94,11 +93,11 @@ Use this for numbers in a rules panel (HP, costs, etc.) instead of hardcoding th
 `GET /api/engine-bundle` → `{"files": {"engine/botapi.py": "...", ...}, "config": {...}}`: the engine source for Pyodide.
 Opponent `"mirror"` (your bot vs itself) is also accepted by `/api/test`.
 
-`GET /api/starter` → `{"code": "...random-move bot...", "pseudocode": "every turn:\n    pick a random move ..."}`
+`GET /api/starter` → `{"code": "...the editor template...", "pseudocode": "every turn:\n    pick a random move ..."}`
 
 `POST /api/register` `{"roll": "25b0001", "name": "Asha"}` →
 ```json
-{"token": "K2ojO9VcCHLX0ujkFvtVNNyVLEIwpjqh", "id": 1, "roll": "25B0001", "name": "Asha"}
+{"token": "K2ojO9VcCHLX0ujkFvtVNNyVLEIwpjqh", "id": 1, "roll": "25B0001", "name": "Asha", "new": true}
 ```
 The roll number is uppercased and must be letters and digits only (3–20 characters); the name is 1–60 characters.
 

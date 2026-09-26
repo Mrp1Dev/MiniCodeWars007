@@ -61,7 +61,7 @@ export default function App() {
             <button className="btn" onClick={() => window.location.reload()}>Try again</button>
           </>
         ) : (
-          <><span className="spinner" /> Loading…</>
+          <><span className="spinner" /> Loading</>
         )}
       </div>
     );
@@ -70,7 +70,6 @@ export default function App() {
   return (
     <Workspace
       me={me}
-      token={token}
       status={status}
       offline={offline}
       refreshStatus={refresh}

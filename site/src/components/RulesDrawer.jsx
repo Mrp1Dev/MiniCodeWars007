@@ -1,6 +1,7 @@
 // Slide-over with the rules (numbers from /api/rules), the bot API and the test opponents.
 import { useEffect, useState } from "react";
 import { prettyBot } from "./Replay";
+import { IconClose } from "./icons";
 
 function moveRows(cfg) {
   const a = cfg.actions;
@@ -47,7 +48,7 @@ export default function RulesDrawer({ open, onClose, rules, houseBots }) {
               <button key={k} className={`tab ${tab === k ? "active" : ""}`} onClick={() => setTab(k)}>{label}</button>
             ))}
           </div>
-          <button className="btn btn-ghost" onClick={onClose} aria-label="Close">✕</button>
+          <button className="icon-btn" onClick={onClose} aria-label="Close"><IconClose /></button>
         </div>
 
         <div className="drawer-body">
@@ -81,14 +82,17 @@ export default function RulesDrawer({ open, onClose, rules, houseBots }) {
             <>
               <h3>How it works</h3>
               <ol className="steps">
-                <li>Write what your bot should do, in plain words or in Python, in the editor.</li>
-                <li>Press <b>Clean with AI</b>. It turns your words into Python, exactly as you wrote them. It won't invent
-                  strategy: if something is vague, it tells you which part to fix.</li>
-                <li>Press <b>Test</b> to play a practice game. Read the turn-by-turn table to see what your bot did.</li>
-                <li>Press <b>Submit</b> when you're happy. You can submit again until time runs out; your latest
-                  working submission is the one that plays in the tournament.</li>
+                <li>Write your bot's <code>play()</code> function in the editor. Python is best; if you'd rather describe it in
+                  plain English, do that and press <b>Clean with AI</b>.</li>
+                <li>The AI translates exactly what you wrote. It won't invent strategy: if something is vague, it points at
+                  the part to fix. It also fixes small Python slips, like wrong indentation. Every version you clean is kept
+                  in <b>History</b>, and Ctrl+Z / Ctrl+Y step through them too.</li>
+                <li><b>Run</b> a practice match and read the turn-by-turn table to see what your bot did and where it went
+                  wrong. Ctrl+Enter runs one too.</li>
+                <li><b>Submit</b> when you're happy. You can submit again until time runs out; your latest working
+                  submission is the one that plays in the tournament.</li>
               </ol>
-              <h3>Tips for pseudocode</h3>
+              <h3>Writing it in plain English</h3>
               <ul>
                 <li>Write rules like “if ___ then ___”. The first rule that matches decides the move.</li>
                 <li>Say what to do when no rule matches, otherwise your bot fumbles.</li>
@@ -108,8 +112,8 @@ export default function RulesDrawer({ open, onClose, rules, houseBots }) {
 
           {tab === "bots" && (
             <>
-              <p className="muted">These are the practice opponents. They're simple on purpose: the real fight is the
-                tournament. Your submission is checked against all of them.</p>
+              <p className="muted">The practice opponents. They're simple on purpose: the real fight is the tournament.
+                Every submission is checked against all of them.</p>
               {(houseBots || []).map((b) => (
                 <details key={b.name} className="bot-card">
                   <summary><b>{prettyBot(b.name)}</b> <span className="muted">{b.description}</span></summary>

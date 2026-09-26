@@ -289,13 +289,20 @@ def starter():
 
 @app.post("/api/register")
 def register(body: RegisterBody):
-    require_phase("registration", "coding")
+    """Signs in with roll number + name: registers a new roll number, or signs in again as an
+    existing one (any phase, keeping the name it registered with). There are no passwords; the
+    token only identifies this browser."""
     token = secrets.token_urlsafe(24)
-    try:
-        pid = db.create_participant(body.roll, body.name, token)
-    except sqlite3.IntegrityError:
-        raise HTTPException(409, "this roll number is already registered; ask an organiser to recover your session")
-    return {"token": token, "id": pid, "roll": body.roll, "name": body.name}
+    row = db.participant_by_roll(body.roll)
+    if row is None:
+        require_phase("registration", "coding")
+        try:
+            pid = db.create_participant(body.roll, body.name, token)
+            return {"token": token, "id": pid, "roll": body.roll, "name": body.name, "new": True}
+        except sqlite3.IntegrityError:  # registered by a request that raced this one
+            row = db.participant_by_roll(body.roll)
+    db.add_session(row["id"], token)
+    return {"token": token, "id": row["id"], "roll": row["roll"], "name": row["name"], "new": False}
 
 
 # --- participant -------------------------------------------------------------------------

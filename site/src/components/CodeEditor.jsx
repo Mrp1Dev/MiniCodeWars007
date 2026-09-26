@@ -1,9 +1,9 @@
 // The one editor: participants type pseudocode or Python here, and "Clean with AI" replaces it.
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import { basicSetup } from "codemirror";
-import { EditorState, StateEffect, StateField } from "@codemirror/state";
+import { EditorState, Prec, StateEffect, StateField } from "@codemirror/state";
 import { Decoration, EditorView, keymap } from "@codemirror/view";
-import { indentWithTab } from "@codemirror/commands";
+import { indentWithTab, isolateHistory, redo, redoDepth, undo, undoDepth } from "@codemirror/commands";
 import { HighlightStyle, indentUnit, syntaxHighlighting } from "@codemirror/language";
 import { python, pythonLanguage } from "@codemirror/lang-python";
 import { completeFromList } from "@codemirror/autocomplete";
@@ -43,33 +43,43 @@ export function findQuote(text, quote) {
 
 const theme = EditorView.theme(
   {
-    "&": { height: "100%", fontSize: "15px", backgroundColor: "var(--editor-bg)", color: "var(--text)" },
-    ".cm-scroller": { fontFamily: "var(--mono)", lineHeight: "1.55", fontVariantLigatures: "none" },
-    ".cm-content": { caretColor: "var(--accent)", padding: "10px 0" },
-    ".cm-cursor": { borderLeftColor: "var(--accent)", borderLeftWidth: "2px" },
-    ".cm-gutters": { backgroundColor: "var(--editor-bg)", color: "var(--faint)", border: "none" },
-    ".cm-activeLine": { backgroundColor: "rgba(255,255,255,0.035)" },
+    "&": { height: "100%", fontSize: "14.5px", backgroundColor: "transparent", color: "var(--text)" },
+    ".cm-scroller": { fontFamily: "var(--mono)", lineHeight: "1.65", fontVariantLigatures: "none" },
+    ".cm-content": { caretColor: "var(--gold)", padding: "14px 0" },
+    ".cm-cursor": { borderLeftColor: "var(--gold)", borderLeftWidth: "2px" },
+    ".cm-gutters": { backgroundColor: "transparent", color: "var(--faint)", border: "none", paddingLeft: "6px" },
+    ".cm-lineNumbers .cm-gutterElement": { padding: "0 12px 0 8px" },
+    ".cm-activeLine": { backgroundColor: "rgba(255,255,255,0.025)" },
     ".cm-activeLineGutter": { backgroundColor: "transparent", color: "var(--muted)" },
+    "&.cm-focused": { outline: "none" },
     "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection": {
-      backgroundColor: "rgba(232, 184, 75, 0.25) !important",
+      backgroundColor: "rgba(201, 169, 97, 0.22) !important",
     },
-    ".cm-tooltip": { backgroundColor: "var(--panel-2)", border: "1px solid var(--line)", color: "var(--text)" },
-    ".cm-tooltip-autocomplete > ul > li[aria-selected]": { backgroundColor: "var(--accent)", color: "#111" },
-    ".cm-foldPlaceholder": { backgroundColor: "var(--panel-2)", border: "none", color: "var(--muted)" },
-    ".cm-matchingBracket": { backgroundColor: "rgba(255,255,255,0.1) !important", outline: "none" },
+    ".cm-tooltip": { backgroundColor: "var(--raised)", border: "1px solid var(--line-2)", color: "var(--text)", borderRadius: "8px", overflow: "hidden" },
+    ".cm-tooltip-autocomplete > ul": { fontFamily: "var(--mono)", fontSize: "13px" },
+    ".cm-tooltip-autocomplete > ul > li[aria-selected]": { backgroundColor: "rgba(201, 169, 97, 0.18)", color: "var(--text)" },
+    ".cm-completionDetail": { color: "var(--muted)", fontStyle: "normal", marginLeft: "10px" },
+    ".cm-foldPlaceholder": { backgroundColor: "var(--raised)", border: "none", color: "var(--muted)" },
+    ".cm-foldGutter .cm-gutterElement": { color: "var(--faint)" },
+    ".cm-matchingBracket": { backgroundColor: "rgba(255,255,255,0.08) !important", outline: "none" },
+    ".cm-lintRange-error": { backgroundImage: "none", borderBottom: "2px solid rgba(229, 72, 77, 0.8)" },
+    ".cm-diagnostic-error": { borderLeftColor: "var(--red)" },
+    ".cm-panels": { backgroundColor: "var(--raised)", color: "var(--text)" },
+    ".cm-searchMatch": { backgroundColor: "rgba(201, 169, 97, 0.25)" },
   },
   { dark: true },
 );
 
 const highlight = HighlightStyle.define([
-  { tag: [t.keyword, t.controlKeyword, t.definitionKeyword, t.moduleKeyword], color: "#ff7b72" },
-  { tag: [t.string], color: "#a5d6ff" },
-  { tag: [t.number, t.bool, t.null], color: "#79c0ff" },
-  { tag: [t.comment], color: "#7d8590", fontStyle: "italic" },
-  { tag: [t.function(t.definition(t.variableName)), t.function(t.variableName)], color: "#d2a8ff" },
-  { tag: [t.propertyName], color: "#7ee0b5" },
-  { tag: [t.operator, t.compareOperator], color: "#ff9e64" },
-  { tag: [t.variableName], color: "#e6edf3" },
+  { tag: [t.keyword, t.controlKeyword, t.definitionKeyword, t.moduleKeyword, t.operatorKeyword], color: "#d4a574" },
+  { tag: [t.string], color: "#9ccfa0" },
+  { tag: [t.number, t.bool, t.null], color: "#e0b872" },
+  { tag: [t.comment], color: "#5f6873", fontStyle: "italic" },
+  { tag: [t.function(t.definition(t.variableName)), t.function(t.variableName)], color: "#8fb8e8" },
+  { tag: [t.propertyName], color: "#b9c4cf" },
+  { tag: [t.operator, t.compareOperator, t.arithmeticOperator], color: "#9aa4ae" },
+  { tag: [t.variableName], color: "#e8e6e1" },
+  { tag: [t.punctuation, t.paren, t.bracket], color: "#7c8590" },
 ]);
 
 // The bot API, offered as autocompletions.
@@ -84,11 +94,15 @@ const apiWords = completeFromList([
 
 // --- component --------------------------------------------------------------------------
 
-const CodeEditor = forwardRef(function CodeEditor({ initialDoc, onChange }, ref) {
+const CodeEditor = forwardRef(function CodeEditor({ initialDoc, onChange, onHistory, onRun }, ref) {
   const host = useRef(null);
   const view = useRef(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const onHistoryRef = useRef(onHistory);
+  onHistoryRef.current = onHistory;
+  const onRunRef = useRef(onRun);
+  onRunRef.current = onRun;
 
   useEffect(() => {
     const v = new EditorView({
@@ -102,6 +116,13 @@ const CodeEditor = forwardRef(function CodeEditor({ initialDoc, onChange }, ref)
           indentUnit.of("    "),
           EditorState.tabSize.of(4),
           keymap.of([indentWithTab]),
+          // Ctrl+Y and Ctrl+Shift+Z both redo, whatever the platform guesses.
+          Prec.highest(keymap.of([
+            { key: "Mod-y", run: redo, preventDefault: true },
+            { key: "Mod-Shift-z", run: redo, preventDefault: true },
+            // Ctrl+Enter runs a match (instead of inserting a blank line).
+            { key: "Mod-Enter", run: () => { if (onRunRef.current) onRunRef.current(); return true; } },
+          ])),
           theme,
           syntaxHighlighting(highlight),
           lintGutter(),
@@ -109,6 +130,7 @@ const CodeEditor = forwardRef(function CodeEditor({ initialDoc, onChange }, ref)
           EditorView.lineWrapping,
           EditorView.updateListener.of((u) => {
             if (u.docChanged) onChangeRef.current(u.state.doc.toString());
+            if (onHistoryRef.current) onHistoryRef.current({ undo: undoDepth(u.state) > 0, redo: redoDepth(u.state) > 0 });
           }),
         ],
       }),
@@ -119,16 +141,20 @@ const CodeEditor = forwardRef(function CodeEditor({ initialDoc, onChange }, ref)
 
   useImperativeHandle(ref, () => ({
     getDoc: () => view.current.state.doc.toString(),
-    // One transaction, so Ctrl+Z brings back what was there before.
+    // One undo step of its own, so Ctrl+Z / Ctrl+Y step between before and after.
     replaceDoc(text) {
       const v = view.current;
+      if (v.state.doc.toString() === text) return;
       v.dispatch({
         changes: { from: 0, to: v.state.doc.length, insert: text },
         effects: setQuoteMarks.of(Decoration.none),
+        annotations: isolateHistory.of("full"),
         userEvent: "input.replace",
-        scrollIntoView: true,
       });
     },
+    undo: () => { undo(view.current); view.current.focus(); },
+    redo: () => { redo(view.current); view.current.focus(); },
+    focus: () => view.current.focus(),
     // problems: [{line, message}] from the static check; line may be null.
     setProblems(problems) {
       const v = view.current;
