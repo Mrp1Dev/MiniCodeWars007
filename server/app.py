@@ -663,6 +663,28 @@ def admin_tournament_clear_mock():
     return tournament.start_tournament()
 
 
+def reset_in_memory_state():
+    with _ai_recent_lock:
+        _ai_recent.clear()
+    with _AIBudget._lock:
+        _AIBudget._reserved.clear()
+    with _OnePerParticipant._lock:
+        _OnePerParticipant._running.clear()
+
+
+@app.api_route("/api/admin/clear-db", methods=["GET", "POST"], dependencies=[Depends(admin)])
+@app.api_route("/api/admin/clear-database", methods=["GET", "POST"], dependencies=[Depends(admin)])
+@app.api_route("/api/admin/clear-databases", methods=["GET", "POST"], dependencies=[Depends(admin)])
+@app.api_route("/api/admin/database/clear", methods=["GET", "POST"], dependencies=[Depends(admin)])
+def admin_clear_database():
+    """Clears all participants, submissions, AI requests, tournament data, and event state across all databases."""
+    db.clear_all_databases()
+    tournament.reset_tournament()
+    reset_in_memory_state()
+    return {"status": "ok", "message": "All databases cleared successfully.", **status()}
+
+
+
 # --- website ---------------------------------------------------------------------------
 # Everything in web/ is served at /, so the site and the API share one origin.
 # Mounted last so it never shadows /api or /docs.

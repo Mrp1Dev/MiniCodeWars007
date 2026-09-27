@@ -6,6 +6,7 @@ import threading
 import time
 from contextlib import contextmanager
 
+from . import settings
 from .settings import DB_PATH
 
 SCHEMA = """
@@ -272,3 +273,62 @@ def ai_requests(limit=100, status=None):
         q = ("SELECT a.*, p.roll FROM ai_requests a JOIN participants p ON p.id = a.participant_id"
              + (" WHERE a.status = ?" if status else "") + " ORDER BY a.id DESC LIMIT ?")
         return c.execute(q, ((status,) if status else ()) + (limit,)).fetchall()
+
+
+def clear_all_databases():
+    """Wipes all data from all tables in minicodewars.db and any other sqlite databases on the backend,
+    resetting the system to a clean initial registration state."""
+    with connect() as c:
+        c.execute("PRAGMA foreign_keys = OFF")
+        tables = [
+            r[0] for r in c.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+            ).fetchall()
+        ]
+        for t in tables:
+            c.execute(f"DELETE FROM {t}")
+        try:
+            c.execute("DELETE FROM sqlite_sequence")
+        except sqlite3.OperationalError:
+            pass
+        # Reset default event state: registration phase
+        c.execute("INSERT INTO event(key, value) VALUES ('phase', 'registration')")
+        # Reset default tournament_state
+        c.execute("""
+            INSERT INTO tournament_state(id, stage, round_number, started_at, paused, paused_at,
+                                         accumulated_pause, highlight_match_id, turn_step, updated_at)
+            VALUES(1, 'ready_room', 0, NULL, 0, NULL, 0, NULL, -1, ?)
+        """, (time.time(),))
+
+    # Also clean any other SQLite database files found in the data/ directory or project root
+    other_db_paths = [
+        settings.ROOT / "db.sqlite3",
+        *DB_PATH.parent.glob("*.db"),
+        *DB_PATH.parent.glob("*.sqlite*"),
+    ]
+    for p in other_db_paths:
+        try:
+            if not p.exists() or not p.is_file() or p.resolve() == DB_PATH.resolve():
+                continue
+            if p.stat().st_size == 0:
+                continue
+            conn = sqlite3.connect(p)
+            try:
+                with conn:
+                    conn.execute("PRAGMA foreign_keys = OFF")
+                    tbls = [
+                        r[0] for r in conn.execute(
+                            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                        ).fetchall()
+                    ]
+                    for t in tbls:
+                        conn.execute(f"DELETE FROM {t}")
+                    try:
+                        conn.execute("DELETE FROM sqlite_sequence")
+                    except sqlite3.OperationalError:
+                        pass
+            finally:
+                conn.close()
+        except Exception:
+            pass
+

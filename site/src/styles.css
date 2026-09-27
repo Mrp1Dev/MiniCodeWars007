@@ -68,6 +68,22 @@ svg { flex: none; }
 .btn-quiet { color: var(--muted); }
 .btn-quiet:hover:not(:disabled) { color: var(--text); }
 
+.btn-danger {
+  color: #ff6b6b;
+  border-color: rgba(229, 72, 77, 0.4);
+  background: rgba(229, 72, 77, 0.12);
+}
+.btn-danger:hover:not(:disabled) {
+  background: rgba(229, 72, 77, 0.22);
+  border-color: rgba(229, 72, 77, 0.7);
+  color: #ff8585;
+}
+.btn-danger:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+
 .btn-gold {
   border: none; color: #17130a; font-weight: 650;
   background: linear-gradient(180deg, #dcc07f 0%, #b99752 100%);

@@ -1292,6 +1292,15 @@ def start_tournament() -> Dict[str, Any]:
     return get_screen_data()
 
 
+def reset_tournament():
+    """Resets tournament in-memory state, cancels prefetch, and sets stage to ready_room."""
+    _cancel_prefetch()
+    _bump_results_version()
+    invalidate_cache(standings=True)
+    _enter_stage(STAGE_READY, None, None)
+
+
+
 def advance_to_cut_ceremony():
     """Transitions from Swiss stage to the Top 32 Cut Ceremony."""
     with db.connect() as c:

@@ -146,6 +146,30 @@ class Server(unittest.TestCase):
         self.assertIn("is_mirroring", data)
         self.assertIn("total_participants", data)
 
+    def test_clear_database(self):
+        # 401 without admin key
+        self.assertEqual(self.c.post("/api/admin/clear-db").status_code, 401)
+
+        # Register participant and add state
+        self.register(roll="25B0099", name="Clear Me")
+        self.phase("coding", minutes=20)
+        self.c.post("/api/admin/announce", json={"message": "About to clear"}, headers=ADMIN)
+        self.assertGreater(len(self.c.get("/api/admin/participants", headers=ADMIN).json()), 0)
+
+        # Call clear-db endpoint
+        r = self.c.post("/api/admin/clear-db", headers=ADMIN)
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["status"], "ok")
+
+        # Verify DB is reset
+        parts = self.c.get("/api/admin/participants", headers=ADMIN).json()
+        self.assertEqual(parts, [])
+        status = self.c.get("/api/status").json()
+        self.assertEqual(status["phase"], "registration")
+        self.assertEqual(status["announcement"], "")
+        entries = self.c.get("/api/admin/entries", headers=ADMIN).json()
+        self.assertEqual(entries, [])
+
 
 if __name__ == "__main__":
     unittest.main()

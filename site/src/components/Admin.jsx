@@ -18,6 +18,7 @@ import {
   IconRefresh,
   IconSearch,
   IconSpark,
+  IconTrash,
   IconUser,
 } from "./icons";
 import "../admin.css";
@@ -47,6 +48,7 @@ export default function Admin({ onExit }) {
 
   // Loading & refresh states
   const [loadingData, setLoadingData] = useState(false);
+  const [clearingDb, setClearingDb] = useState(false);
   const [actionMsg, setActionMsg] = useState({ text: "", type: "info" });
 
   // Form controls
@@ -176,6 +178,32 @@ export default function Admin({ onExit }) {
       notify("Announcement cleared", "success");
     } catch (err) {
       notify(err.message, "bad");
+    }
+  }
+
+  async function handleClearDatabase() {
+    const confirmed = window.confirm(
+      "⚠️ DANGER: Clear All Databases?\n\n" +
+      "This will permanently delete:\n" +
+      "• All registered participants\n" +
+      "• All bot submissions & validation reports\n" +
+      "• All tournament rounds, matches, and standings\n" +
+      "• All AI clean code request history\n\n" +
+      "The event phase will be reset to 'registration'.\n\n" +
+      "Are you sure you want to proceed?"
+    );
+    if (!confirmed) return;
+
+    setClearingDb(true);
+    try {
+      const res = await adminApi("/api/admin/clear-db", { method: "POST" });
+      refreshStatus();
+      await loadDashboardData();
+      notify(res.message || "All databases cleared successfully.", "success");
+    } catch (err) {
+      notify(err.message || "Failed to clear databases.", "bad");
+    } finally {
+      setClearingDb(false);
     }
   }
 
@@ -331,9 +359,18 @@ export default function Admin({ onExit }) {
               refreshStatus();
               loadDashboardData();
             }}
-            disabled={loadingData}
+            disabled={loadingData || clearingDb}
           >
             <IconRefresh size={14} /> Refresh
+          </button>
+          <button
+            className="btn btn-sm btn-danger"
+            title="Clear all databases on backend"
+            onClick={handleClearDatabase}
+            disabled={clearingDb || loadingData}
+            id="admin-clear-db-btn"
+          >
+            <IconTrash size={14} /> {clearingDb ? "Clearing..." : "Clear Database"}
           </button>
           <button
             className="btn btn-sm btn-quiet"
@@ -564,6 +601,35 @@ export default function Admin({ onExit }) {
                 </span>
               </div>
             </div>
+          </div>
+
+          {/* Danger Zone: Database Management */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "12px 16px",
+              borderRadius: "8px",
+              background: "rgba(229, 72, 77, 0.07)",
+              border: "1px solid rgba(229, 72, 77, 0.22)",
+              gap: "12px",
+              flexWrap: "wrap",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <IconAlert size={16} style={{ color: "var(--red)" }} />
+              <span style={{ fontSize: "12.5px", color: "var(--muted)" }}>
+                <strong style={{ color: "var(--text)" }}>Database Management:</strong> Permanently wipe all participants, submissions, matches, standings, and AI request logs across backend databases.
+              </span>
+            </div>
+            <button
+              className="btn btn-xs btn-danger"
+              onClick={handleClearDatabase}
+              disabled={clearingDb || loadingData}
+            >
+              <IconTrash size={13} /> {clearingDb ? "Clearing..." : "Clear All Databases"}
+            </button>
           </div>
         </section>
 

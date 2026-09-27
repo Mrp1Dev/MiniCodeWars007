@@ -50,6 +50,10 @@ export const IconDownload = (p) => (
 export const IconRefresh = (p) => (
   <Svg {...p}><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2" /></Svg>
 );
+export const IconTrash = (p) => (
+  <Svg {...p}><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6" /></Svg>
+);
+
 
 // The gun-barrel mark: concentric rings, used for the brand and empty states.
 export const Barrel = ({ size = 22 }) => (
