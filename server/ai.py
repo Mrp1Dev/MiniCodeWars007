@@ -295,7 +295,7 @@ def clean(pseudocode, client=None):
     text, finish, pt, ct = _chat(client, messages)
     result = parse(text)
     if result.status == "error" and finish == "length":
-        result.message = "the AI ran out of room while thinking; please try again (shorter pseudocode helps)"
+        result.message = "the AI ran out of room while thinking; please try again (clearer & shorter pseudocode helps)"
     if result.status == "ok":
         problems = check_source(result.code)
         if problems:
