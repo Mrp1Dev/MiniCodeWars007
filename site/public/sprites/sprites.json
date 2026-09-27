@@ -1,0 +1,129 @@
+{
+  "_help": "Big Screen duel sprites. Each agent has poses (pistol, rifle, shield). A pose is two PNGs of the same size, drawn facing RIGHT: 'body' (everything but the weapon) and 'weapon' (the weapon plus the arm/hands holding it). Points are pixels inside those PNGs: feet = ground point between the feet (every pose lines up on it), pivot = shoulder the weapon turns around, muzzle = barrel tip, grip = where a reload magazine goes in. Agent 2 is mirrored automatically. Moves use: SHOOT and RELOAD = pistol, SNIPE = rifle, SHIELD and COUNTER = shield (for the shield pose, pivot is the hand holding the pistol and muzzle is the tip of the pistol pointing down), anything else = the 'idle' pose.",
+  "agent1": {
+    "idle": "pistol",
+    "pistol": {
+      "body": "agent1-pistol-body.png",
+      "weapon": "agent1-pistol-weapon.png",
+      "feet": [
+        21,
+        57
+      ],
+      "pivot": [
+        32,
+        20
+      ],
+      "muzzle": [
+        66,
+        15
+      ],
+      "grip": [
+        46,
+        21
+      ]
+    },
+    "rifle": {
+      "body": "agent1-rifle-body.png",
+      "weapon": "agent1-rifle-weapon.png",
+      "feet": [
+        20,
+        54
+      ],
+      "pivot": [
+        24,
+        17
+      ],
+      "muzzle": [
+        63,
+        17
+      ],
+      "grip": [
+        40,
+        21
+      ]
+    },
+    "shield": {
+      "body": "agent1-shield-body.png",
+      "weapon": "agent1-shield-weapon.png",
+      "feet": [
+        21,
+        57
+      ],
+      "pivot": [
+        32,
+        30
+      ],
+      "muzzle": [
+        37,
+        42
+      ],
+      "grip": [
+        33,
+        34
+      ]
+    }
+  },
+  "agent2": {
+    "idle": "rifle",
+    "rifle": {
+      "body": "agent2-rifle-body.png",
+      "weapon": "agent2-rifle-weapon.png",
+      "feet": [
+        23,
+        56
+      ],
+      "pivot": [
+        20,
+        20
+      ],
+      "muzzle": [
+        69,
+        18
+      ],
+      "grip": [
+        40,
+        24
+      ]
+    },
+    "pistol": {
+      "body": "agent2-pistol-body.png",
+      "weapon": "agent2-pistol-weapon.png",
+      "feet": [
+        22,
+        55
+      ],
+      "pivot": [
+        32,
+        19
+      ],
+      "muzzle": [
+        61,
+        16
+      ],
+      "grip": [
+        46,
+        21
+      ]
+    },
+    "shield": {
+      "body": "agent2-shield-body.png",
+      "weapon": "agent2-shield-weapon.png",
+      "feet": [
+        22,
+        55
+      ],
+      "pivot": [
+        32,
+        29
+      ],
+      "muzzle": [
+        37,
+        41
+      ],
+      "grip": [
+        33,
+        33
+      ]
+    }
+  }
+}
