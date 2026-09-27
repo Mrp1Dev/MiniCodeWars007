@@ -1,5 +1,84 @@
 import { useEffect, useRef, useState } from "react";
 
+const FRESH = { hp: 3, ammo: 0, shields: 3 };
+
+function wins(games, upTo) {
+  let p1 = 0;
+  let p2 = 0;
+  for (let i = 0; i < upTo; i++) {
+    const w = games[i]?.result?.winner;
+    if (w === 0) p1++;
+    else if (w === 1) p2++;
+  }
+  return [p1, p2];
+}
+
+function snapshot(games, gameIndex, turnIndex, { isIntermission = false, isMatchComplete = false, scoredGames }) {
+  const currentGame = games[gameIndex] || null;
+  const currentTurn = currentGame?.turns?.[turnIndex] || null;
+  const [p1Score, p2Score] = wins(games, scoredGames);
+  const p1 = currentTurn?.state?.[0] || FRESH;
+  const p2 = currentTurn?.state?.[1] || FRESH;
+  return {
+    gameIndex,
+    turnIndex,
+    isIntermission,
+    isMatchComplete,
+    currentGame,
+    currentTurn,
+    p1Score,
+    p2Score,
+    p1Hp: p1.hp ?? 3,
+    p2Hp: p2.hp ?? 3,
+    p1Ammo: p1.ammo ?? 0,
+    p2Ammo: p2.ammo ?? 0,
+    p1Shields: p1.shields ?? 3,
+    p2Shields: p2.shields ?? 3,
+  };
+}
+
+function lastTurnIndex(game) {
+  return Math.max(0, (game?.turns?.length || 1) - 1);
+}
+
+/** Where a series stands `elapsedMs` after it started playing. */
+function atElapsed(games, elapsedMs, turnMs, gamePauseMs) {
+  let t = 0;
+  for (let i = 0; i < games.length; i++) {
+    const turnCount = games[i].turns?.length || 0;
+    const duration = turnCount * turnMs;
+    if (elapsedMs < t + duration + gamePauseMs) {
+      const inGame = elapsedMs - t;
+      if (inGame >= duration) {
+        // Between games: the finished game's result counts toward the series score.
+        return snapshot(games, i, lastTurnIndex(games[i]), { isIntermission: true, scoredGames: i + 1 });
+      }
+      return snapshot(games, i, Math.min(lastTurnIndex(games[i]), Math.floor(inGame / turnMs)), { scoredGames: i });
+    }
+    t += duration + gamePauseMs;
+  }
+  const last = games.length - 1;
+  return snapshot(games, last, lastTurnIndex(games[last]), { isMatchComplete: true, scoredGames: games.length });
+}
+
+/** Host-controlled step: `step` counts turns across all games; stepping past the end completes the match. */
+function atStep(games, step) {
+  let acc = 0;
+  for (let i = 0; i < games.length; i++) {
+    const turnCount = games[i].turns?.length || 0;
+    if (step < acc + turnCount) {
+      return snapshot(games, i, step - acc, { scoredGames: i });
+    }
+    acc += turnCount;
+  }
+  const last = games.length - 1;
+  return snapshot(games, last, lastTurnIndex(games[last]), { isMatchComplete: true, scoredGames: games.length });
+}
+
+/**
+ * Deterministic replay clock shared by every screen: the position in a series is a pure function of
+ * (server time - started_at - accumulated pause), so a reload or a late joiner lands on the same turn.
+ */
 export function useDeterministicPlayback({
   startedAt,
   serverTime,
@@ -10,278 +89,71 @@ export function useDeterministicPlayback({
   matchId = null,
   turnMs = 750,
   gamePauseMs = 2500,
-  isSequential = false,
   isCompleted = false,
 }) {
-  // 1. Maintain clock offset smoothly without triggering animation loop rebuilds
+  // Offset between the server clock and this device's clock, refreshed with every poll.
   const clockOffsetRef = useRef(serverTime ? serverTime - Date.now() / 1000 : 0);
   useEffect(() => {
-    if (serverTime) {
-      clockOffsetRef.current = serverTime - Date.now() / 1000;
-    }
+    if (serverTime) clockOffsetRef.current = serverTime - Date.now() / 1000;
   }, [serverTime]);
 
-  // Keep latest games in ref so polling object reference churn doesn't break RAF
+  // Polling hands us a new games array every time; keep the latest in a ref so the loop isn't rebuilt.
   const gamesRef = useRef(games);
-  useEffect(() => {
-    gamesRef.current = games;
-  }, [games]);
+  gamesRef.current = games;
+  const hasGames = games.length > 0;
 
-  const getInitialState = () => {
-    const firstGame = games[0] || null;
-    const firstTurn = firstGame?.turns?.[0] || null;
-    return {
-      gameIndex: 0,
-      turnIndex: 0,
-      isIntermission: false,
-      isMatchComplete: false,
-      currentGame: firstGame,
-      currentTurn: firstTurn,
-      p1Score: 0,
-      p2Score: 0,
-      p1Hp: 3,
-      p2Hp: 3,
-      p1Ammo: 0,
-      p2Ammo: 0,
-      p1Shields: 3,
-      p2Shields: 3,
-    };
-  };
-
-  const [playback, setPlayback] = useState(getInitialState);
-  const lastStateRef = useRef({});
+  const [playback, setPlayback] = useState(() =>
+    hasGames ? snapshot(games, 0, 0, { scoredGames: 0 }) : { ...snapshot([], 0, 0, { scoredGames: 0 }), isMatchComplete: true }
+  );
 
   useEffect(() => {
-    const currentGames = gamesRef.current || [];
-    if (!currentGames || currentGames.length === 0) {
-      setPlayback((prev) => ({ ...prev, isMatchComplete: true, currentGame: null, currentTurn: null }));
-      return;
+    const list = gamesRef.current || [];
+    if (list.length === 0) {
+      setPlayback({ ...snapshot([], 0, 0, { scoredGames: 0 }), isMatchComplete: true });
+      return undefined;
     }
-
-    // Forced completed state
     if (isCompleted) {
-      const lastGame = currentGames[currentGames.length - 1];
-      const lastTurn = lastGame?.turns?.[lastGame.turns.length - 1] || null;
-      let p1Wins = 0;
-      let p2Wins = 0;
-      for (const g of currentGames) {
-        const w = g.result?.winner;
-        if (w === 0) p1Wins++;
-        else if (w === 1) p2Wins++;
-      }
-      const p1 = lastTurn?.state?.[0] || { hp: 0, ammo: 0, shields: 0 };
-      const p2 = lastTurn?.state?.[1] || { hp: 0, ammo: 0, shields: 0 };
-
-      setPlayback({
-        gameIndex: currentGames.length - 1,
-        turnIndex: (lastGame?.turns?.length || 1) - 1,
-        isIntermission: false,
-        isMatchComplete: true,
-        currentGame: lastGame,
-        currentTurn: lastTurn,
-        p1Score: p1Wins,
-        p2Score: p2Wins,
-        p1Hp: p1.hp,
-        p2Hp: p2.hp,
-        p1Ammo: p1.ammo,
-        p2Ammo: p2.ammo,
-        p1Shields: p1.shields,
-        p2Shields: p2.shields,
-      });
-      return;
+      setPlayback(atElapsed(list, Number.MAX_SAFE_INTEGER, turnMs, gamePauseMs));
+      return undefined;
     }
-
-    // Grand Finale Manual Host Control mode (turnStep >= 0)
     if (turnStep >= 0) {
-      let totalTurns = 0;
-      for (const g of currentGames) {
-        totalTurns += (g.turns?.length || 0);
-      }
-
-      let stepAcc = 0;
-      let targetGIdx = 0;
-      let targetTIdx = 0;
-      let p1Wins = 0;
-      let p2Wins = 0;
-
-      for (let g = 0; g < currentGames.length; g++) {
-        const turnCount = currentGames[g].turns.length;
-        if (turnStep < stepAcc + turnCount) {
-          targetGIdx = g;
-          targetTIdx = turnStep - stepAcc;
-          break;
-        } else {
-          stepAcc += turnCount;
-          const w = currentGames[g].result?.winner;
-          if (w === 0) p1Wins++;
-          else if (w === 1) p2Wins++;
-          if (g === currentGames.length - 1) {
-            targetGIdx = currentGames.length - 1;
-            targetTIdx = Math.max(0, turnCount - 1);
-          }
-        }
-      }
-
-      const activeGame = currentGames[targetGIdx] || currentGames[0];
-      const activeTurn = activeGame?.turns?.[targetTIdx] || null;
-      const p1 = activeTurn?.state?.[0] || { hp: 3, ammo: 0, shields: 3 };
-      const p2 = activeTurn?.state?.[1] || { hp: 3, ammo: 0, shields: 3 };
-
-      // In manual step mode, display the final turn clash; only mark complete when stepped beyond total turns
-      const isPastFinal = turnStep >= totalTurns;
-
-      setPlayback({
-        gameIndex: targetGIdx,
-        turnIndex: targetTIdx,
-        isIntermission: false,
-        isMatchComplete: isPastFinal,
-        currentGame: activeGame,
-        currentTurn: activeTurn,
-        p1Score: p1Wins,
-        p2Score: p2Wins,
-        p1Hp: p1.hp,
-        p2Hp: p2.hp,
-        p1Ammo: p1.ammo,
-        p2Ammo: p2.ammo,
-        p1Shields: p1.shields,
-        p2Shields: p2.shields,
-      });
-      return;
+      setPlayback(atStep(list, turnStep));
+      return undefined;
     }
-
-    // Not started yet
     if (!startedAt) {
-      setPlayback(getInitialState());
-      return;
+      setPlayback(snapshot(list, 0, 0, { scoredGames: 0 }));
+      return undefined;
     }
 
-    let rafId;
+    let cancelled = false;
+    let rafId = null;
+    let lastKey = null;
 
     const tick = () => {
-      let isDone = false;
-      try {
-        const gList = gamesRef.current || games || [];
-        if (!gList || gList.length === 0) return;
-
-        let totalSeriesDurationMs = 0;
-        for (const g of gList) {
-          totalSeriesDurationMs += (g.turns?.length || 0) * turnMs + gamePauseMs;
+      if (cancelled) return;
+      const current = gamesRef.current || [];
+      let done = false;
+      if (current.length > 0) {
+        const now = Date.now() / 1000 + clockOffsetRef.current;
+        const elapsedMs = Math.max(0, (now - startedAt - (accumulatedPause || 0)) * 1000);
+        const next = atElapsed(current, elapsedMs, turnMs, gamePauseMs);
+        const key = `${next.gameIndex}:${next.turnIndex}:${next.isIntermission}:${next.isMatchComplete}`;
+        if (key !== lastKey) {
+          lastKey = key;
+          setPlayback(next);
         }
-
-        const effectiveNow = Date.now() / 1000 + clockOffsetRef.current;
-        const rawElapsedMs = Math.max(
-          0,
-          (effectiveNow - startedAt - (accumulatedPause || 0)) * 1000
-        );
-
-        // Cap elapsed time to the end of the series so completed matches remain finished without looping
-        const effectiveElapsedMs = rawElapsedMs;
-
-        let accumulatedTime = 0;
-        let targetGameIndex = 0;
-        let targetTurnIndex = 0;
-        let isIntermission = false;
-        let matchComplete = false;
-        let p1Wins = 0;
-        let p2Wins = 0;
-
-        for (let i = 0; i < gList.length; i++) {
-          const game = gList[i];
-          const turnCount = game.turns?.length || 0;
-          const gameDuration = turnCount * turnMs;
-          const totalGameSlot = gameDuration + gamePauseMs;
-
-          if (effectiveElapsedMs < accumulatedTime + totalGameSlot) {
-            // Inside this game
-            targetGameIndex = i;
-            const gameElapsed = effectiveElapsedMs - accumulatedTime;
-
-            if (gameElapsed >= gameDuration) {
-              isIntermission = true;
-              targetTurnIndex = Math.max(0, turnCount - 1);
-              const winner = game.result?.winner;
-              if (winner === 0) p1Wins++;
-              else if (winner === 1) p2Wins++;
-            } else {
-              targetTurnIndex = Math.min(Math.max(0, turnCount - 1), Math.floor(gameElapsed / turnMs));
-            }
-            break;
-          } else {
-            // Past this game
-            accumulatedTime += totalGameSlot;
-            const winner = game.result?.winner;
-            if (winner === 0) p1Wins++;
-            else if (winner === 1) p2Wins++;
-
-            if (i === gList.length - 1) {
-              matchComplete = true;
-              targetGameIndex = gList.length - 1;
-              targetTurnIndex = Math.max(0, (gList[i]?.turns?.length || 1) - 1);
-            }
-          }
-        }
-
-        const activeGame = gList[targetGameIndex] || gList[0];
-        const activeTurn = activeGame?.turns?.[targetTurnIndex] || null;
-
-        let p1Hp = 3, p2Hp = 3, p1Ammo = 0, p2Ammo = 0, p1Shields = 3, p2Shields = 3;
-        if (activeTurn && activeTurn.state) {
-          p1Hp = activeTurn.state[0]?.hp ?? 3;
-          p2Hp = activeTurn.state[1]?.hp ?? 3;
-          p1Ammo = activeTurn.state[0]?.ammo ?? 0;
-          p2Ammo = activeTurn.state[1]?.ammo ?? 0;
-          p1Shields = activeTurn.state[0]?.shields ?? 3;
-          p2Shields = activeTurn.state[1]?.shields ?? 3;
-        }
-
-        const last = lastStateRef.current;
-        const turnChanged = last.turnIndex !== targetTurnIndex || last.gameIndex !== targetGameIndex;
-        const stateChanged = turnChanged || last.isIntermission !== isIntermission || last.matchComplete !== matchComplete;
-
-        if (stateChanged) {
-          lastStateRef.current = {
-            gameIndex: targetGameIndex,
-            turnIndex: targetTurnIndex,
-            isIntermission,
-            matchComplete,
-          };
-
-          setPlayback({
-            gameIndex: targetGameIndex,
-            turnIndex: targetTurnIndex,
-            isIntermission,
-            isMatchComplete: matchComplete,
-            currentGame: activeGame,
-            currentTurn: activeTurn,
-            p1Score: p1Wins,
-            p2Score: p2Wins,
-            p1Hp,
-            p2Hp,
-            p1Ammo,
-            p2Ammo,
-            p1Shields,
-            p2Shields,
-          });
-        }
-
-        if (matchComplete) {
-          isDone = true;
-        }
-      } catch (err) {
-        console.error("BattleArena playback loop error:", err);
+        done = next.isMatchComplete;
       }
-
-      if (!paused && !isDone) {
-        rafId = requestAnimationFrame(tick);
-      }
+      // One loop per effect run; it stops when paused (the next poll restarts it) or finished.
+      if (!paused && !done) rafId = requestAnimationFrame(tick);
     };
-
     tick();
-    if (!paused) {
-      rafId = requestAnimationFrame(tick);
-    }
-    return () => cancelAnimationFrame(rafId);
-  }, [startedAt, paused, accumulatedPause, turnStep, matchId, turnMs, gamePauseMs, isSequential, isCompleted]);
+
+    return () => {
+      cancelled = true;
+      if (rafId !== null) cancelAnimationFrame(rafId);
+    };
+  }, [startedAt, paused, accumulatedPause, turnStep, matchId, hasGames, turnMs, gamePauseMs, isCompleted]);
 
   return playback;
 }

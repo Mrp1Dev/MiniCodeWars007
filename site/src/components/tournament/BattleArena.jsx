@@ -1,20 +1,13 @@
 import React from "react";
 import { useDeterministicPlayback } from "./useDeterministicPlayback";
 
+const EMPTY = [];
+
 export default function BattleArena({
   match,
   status,
   revealNames = false,
-  isSequential = false,
 }) {
-  if (!match) {
-    return (
-      <div className="arena-card center muted" style={{ padding: "60px 20px" }}>
-        <p>No active highlight duel selected for this round.</p>
-      </div>
-    );
-  }
-
   const {
     started_at: startedAt,
     server_time: serverTime,
@@ -25,21 +18,26 @@ export default function BattleArena({
     game_pause_ms: gamePauseMs,
   } = status || {};
 
-  const isIntermissionStage = Boolean(status?.stage?.startsWith("intermission_"));
-
+  // Hooks must run on every render, so the playback clock starts before the "no match" early return.
   const playback = useDeterministicPlayback({
     startedAt,
     serverTime,
     paused,
     accumulatedPause,
-    turnStep,
-    games: match.games || [],
-    matchId: match.match_id || match.id,
+    turnStep: turnStep ?? -1,
+    games: match?.games || EMPTY,
+    matchId: match?.match_id ?? null,
     turnMs: turnMs || 750,
     gamePauseMs: gamePauseMs || 2500,
-    isSequential,
-    isCompleted: isIntermissionStage,
   });
+
+  if (!match) {
+    return (
+      <div className="arena-card center muted" style={{ padding: "60px 20px" }}>
+        <p>No active highlight duel selected for this round.</p>
+      </div>
+    );
+  }
 
   const {
     gameIndex,

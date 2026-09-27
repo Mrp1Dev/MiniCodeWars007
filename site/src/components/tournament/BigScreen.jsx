@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { api } from "../../api";
 import BattleArena from "./BattleArena";
 import TierBoard from "./TierBoard";
@@ -7,27 +7,77 @@ import CutCeremony from "./CutCeremony";
 import TournamentBracket from "./TournamentBracket";
 import "./tournament.css";
 
+// A rendering bug must never leave the projector blank: show a holding card and retry on the next poll.
+class ScreenErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { failedAt: null };
+  }
+
+  static getDerivedStateFromError() {
+    return { failedAt: Date.now() };
+  }
+
+  componentDidCatch(err) {
+    console.error("Big Screen render error:", err);
+  }
+
+  componentDidUpdate(prevProps) {
+    if (this.state.failedAt && prevProps.version !== this.props.version) {
+      this.setState({ failedAt: null });
+    }
+  }
+
+  render() {
+    if (this.state.failedAt) {
+      return (
+        <div className="cut-ceremony-container" style={{ textAlign: "center" }}>
+          <div className="cut-banner">STAND BY</div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+const POLL_MS = 1500;
+
 export default function BigScreen({ onExit }) {
   const [data, setData] = useState(null);
-  const [error, setError] = useState("");
+  const [version, setVersion] = useState(0);
+  const [offline, setOffline] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
-  // Poll Big Screen endpoint every 1.5s
-  const fetchScreenData = useCallback(async () => {
-    try {
-      const res = await api("/api/tournament/screen");
-      setData(res);
-      setError("");
-    } catch (err) {
-      setError(err.message);
-    }
+  // Poll the Big Screen endpoint. One request at a time, so a slow response can never
+  // land after a newer one and rewind the screen.
+  useEffect(() => {
+    let stopped = false;
+    let timer = null;
+    const poll = async () => {
+      try {
+        const res = await api("/api/tournament/screen");
+        if (stopped) return;
+        setData(res);
+        setVersion((v) => v + 1);
+        setOffline(false);
+      } catch {
+        if (!stopped) setOffline(true);
+      }
+      if (!stopped) timer = setTimeout(poll, POLL_MS);
+    };
+    poll();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
   }, []);
 
+  // Esc / F11 leave fullscreen without going through the button.
   useEffect(() => {
-    fetchScreenData();
-    const interval = setInterval(fetchScreenData, 1500);
-    return () => clearInterval(interval);
-  }, [fetchScreenData]);
+    const sync = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", sync);
+    return () => document.removeEventListener("fullscreenchange", sync);
+  }, []);
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -39,7 +89,8 @@ export default function BigScreen({ onExit }) {
 
   const status = data?.status || {};
   const stage = status.stage || "ready_room";
-  const paused = status.paused || false;
+  // Host turn-stepping pauses the clock too, but that's showmanship, not an announcement.
+  const paused = Boolean(status.paused) && (status.turn_step ?? -1) < 0;
   const isSwiss = stage.startsWith("swiss_") || stage.startsWith("intermission_");
   const isCut = stage === "cut_ceremony";
   const isElimination = stage === "ro32" || stage === "ro16";
@@ -96,6 +147,11 @@ export default function BigScreen({ onExit }) {
           <button className="screen-btn" onClick={toggleFullscreen} title="Fullscreen mode">
             {isFullscreen ? "Exit Fullscreen" : "Fullscreen (F11)"}
           </button>
+          {offline && (
+            <span className="screen-btn" title="Can't reach the server; retrying" style={{ color: "var(--t-muted)" }}>
+              Reconnecting…
+            </span>
+          )}
           {onExit && (
             <button className="screen-btn" onClick={onExit} title="Return to workspace">
               Exit
@@ -113,6 +169,7 @@ export default function BigScreen({ onExit }) {
 
       {/* Main Content Router */}
       <main className={`screen-content ${stage === "ready_room" || isCut || isChampion ? "full-width" : ""}`}>
+       <ScreenErrorBoundary version={version}>
         {/* Pre-tournament Ready Room */}
         {stage === "ready_room" && (
           <ReadyRoom totalParticipants={data?.total_participants || 0} />
@@ -132,7 +189,6 @@ export default function BigScreen({ onExit }) {
               match={data?.highlight}
               status={status}
               revealNames={false}
-              isSequential={false}
             />
           </>
         )}
@@ -155,7 +211,6 @@ export default function BigScreen({ onExit }) {
               match={data?.highlight}
               status={status}
               revealNames={false}
-              isSequential={false}
             />
           </>
         )}
@@ -173,7 +228,6 @@ export default function BigScreen({ onExit }) {
               match={data?.highlight}
               status={status}
               revealNames={true}
-              isSequential={true}
             />
           </>
         )}
@@ -185,15 +239,20 @@ export default function BigScreen({ onExit }) {
               🏆 TOURNAMENT CHAMPION 🏆
             </div>
             <div className="ready-counter" style={{ fontSize: "28px", padding: "12px 36px" }}>
-              {data?.highlight?.winner_id === data?.highlight?.p1_id
-                ? `${data?.highlight?.p1_real_name} (${data?.highlight?.p1_name})`
-                : `${data?.highlight?.p2_real_name} (${data?.highlight?.p2_name})`}
+              {(() => {
+                const h = data?.highlight;
+                if (!h) return "";
+                const side = h.winner_id === h.p1_id ? "p1" : "p2";
+                const real = h[`${side}_real_name`];
+                return real ? `${real} (${h[`${side}_name`]})` : h[`${side}_name`];
+              })()}
             </div>
             <p className="faint" style={{ fontSize: "16px", maxWidth: "600px" }}>
               Congratulations to the champion of MiniCodeWars 007! Winner of the grand prize and undisputed 007 agent.
             </p>
           </div>
         )}
+       </ScreenErrorBoundary>
       </main>
     </div>
   );

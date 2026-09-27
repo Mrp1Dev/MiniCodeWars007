@@ -20,7 +20,7 @@ from typing import Literal, Optional
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 
@@ -530,7 +530,7 @@ def tournament_status():
 @app.get("/api/tournament/screen")
 def tournament_screen():
     """Aggregated payload for the Big Screen projector (tiers, highlight replay, countdown)."""
-    return tournament.get_screen_data()
+    return Response(tournament.get_screen_json(), media_type="application/json")
 
 
 @app.get("/api/tournament/bracket")
@@ -552,7 +552,7 @@ def tournament_match(match_id: int):
         """, (match_id,)).fetchone()
         if not row:
             raise HTTPException(404, "no such match")
-        reveal_names = row["stage"] in ("ro8_m1", "ro8_m2", "ro8_m3", "ro8_m4", "ro4_m1", "ro4_m2", "finals", "champion")
+        reveal_names = row["stage"] in tournament.SEQUENTIAL_STAGES
         return {
             "match_id": row["id"],
             "stage": row["stage"],
@@ -561,8 +561,8 @@ def tournament_match(match_id: int):
             "p2_id": row["p2_id"],
             "p1_name": row["p1_bot"] or row["p1_real"],
             "p2_name": (row["p2_bot"] or row["p2_real"]) if row["p2_id"] else "BYE",
-            "p1_real_name": row["p1_real"] if reveal_names else (row["p1_bot"] or row["p1_real"]),
-            "p2_real_name": (row["p2_real"] if reveal_names else (row["p2_bot"] or row["p2_real"])) if row["p2_id"] else "",
+            "p1_real_name": row["p1_real"] if reveal_names else "",
+            "p2_real_name": row["p2_real"] if (reveal_names and row["p2_id"]) else "",
             "p1_score": row["p1_score"],
             "p2_score": row["p2_score"],
             "winner_id": row["winner_id"],
@@ -584,6 +584,15 @@ def admin_tournament_advance(body: TournAdvanceBody = TournAdvanceBody()):
     except ValueError as e:
         raise HTTPException(400, str(e))
 
+
+
+@app.post("/api/admin/tournament/undo", dependencies=[Depends(admin)])
+def admin_tournament_undo():
+    """Discards the current stage's results and shows the previous stage again."""
+    try:
+        return tournament.undo_stage()
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 @app.post("/api/admin/tournament/pause", dependencies=[Depends(admin)])
