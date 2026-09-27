@@ -1,5 +1,6 @@
 import React from "react";
 import { useDeterministicPlayback } from "./useDeterministicPlayback";
+import PixelArena from "./PixelArena";
 
 const EMPTY = [];
 
@@ -160,8 +161,17 @@ export default function BattleArena({
         )}
       </div>
 
-      {/* Main Duel Stage */}
-      <div className="arena-stage">
+      {/* Pixel-art duel, driven by the same playback clock */}
+      <PixelArena
+        playback={playback}
+        names={[match.p1_name, match.is_bye ? "" : match.p2_name]}
+        winnerSide={match.winner_id == null ? null : match.winner_id === match.p1_id ? 0 : 1}
+        matchId={match.match_id}
+        isBye={Boolean(match.is_bye)}
+      />
+
+      {/* Stats and move badges */}
+      <div className="arena-stage compact">
         {/* Player 1 Panel */}
         <div className={`combatant-panel p1 ${isP1Me ? "is-user-bot" : ""} ${isMatchComplete ? (p1Won ? "combatant-winner" : "combatant-loser") : ""}`}>
           <div className="combatant-header-line">
