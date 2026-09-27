@@ -1523,6 +1523,7 @@ def advance_stage(target_stage: Optional[str] = None) -> Dict[str, Any]:
         else:
             advance_to_champion()
         _start_prefetch()
+        _warm_participant_cache()
         return get_screen_data()
     finally:
         _advance_lock.release()
@@ -1553,6 +1554,7 @@ def undo_stage() -> Dict[str, Any]:
             started_at = time.time()
         _enter_stage(prev, started_at, highlight_id)
         _start_prefetch()
+        _warm_participant_cache()
         return get_screen_data()
     finally:
         _advance_lock.release()
@@ -1862,7 +1864,10 @@ def get_screen_json() -> str:
 
 
 def _build_participant_cache():
-    """Builds and caches personalized participant tournament payloads for all participants in RAM."""
+    """Builds and caches personalized participant tournament payloads for all participants in RAM.
+    Only cached if nothing was written meanwhile, so an advance can't be overwritten by a stale build."""
+    with _cache_lock:
+        gen = _GEN
     screen_data = get_screen_data()
     status = get_tournament_status()
     stage = status["stage"]
@@ -2030,7 +2035,21 @@ def _build_participant_cache():
             }
 
     with _cache_lock:
-        _CACHE["participant_matches"] = cache_map
+        if _GEN == gen:
+            _CACHE["participant_matches"] = cache_map
+    return cache_map
+
+
+_participant_build_lock = threading.Lock()
+
+
+def _warm_participant_cache():
+    """Builds the laptop view as soon as the stage changes, so no laptop waits for it."""
+    try:
+        with _participant_build_lock:
+            _build_participant_cache()
+    except Exception:
+        logger.exception("warming the participant cache failed")
 
 
 def get_participant_data(participant_id: int) -> Dict[str, Any]:
@@ -2039,9 +2058,12 @@ def get_participant_data(participant_id: int) -> Dict[str, Any]:
         cache_map = _CACHE.get("participant_matches")
 
     if cache_map is None:
-        _build_participant_cache()
-        with _cache_lock:
-            cache_map = _CACHE.get("participant_matches")
+        # Right after a change every laptop asks at once; one request rebuilds, the rest wait for it.
+        with _participant_build_lock:
+            with _cache_lock:
+                cache_map = _CACHE.get("participant_matches")
+            if cache_map is None:
+                cache_map = _build_participant_cache()
 
     latest_status = get_tournament_status()
 

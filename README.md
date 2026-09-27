@@ -101,6 +101,35 @@ The participant site is a React app in `site/` (Vite). `npm run build` writes it
   versioned files are cached for a year.
 - Developing: run the server, then `npm run dev` in `site/` (http://localhost:5173, forwards `/api` to port 8000).
 
+### Big Screen duel sprites
+
+The two agents in the Big Screen duel are PNGs in `site/public/sprites/`, described by `sprites.json` there. Each agent
+has three poses, and the move decides which one is shown:
+
+| Pose | Used for |
+|---|---|
+| `pistol` | SHOOT and RELOAD (reloads always use the pistol) |
+| `rifle` | SNIPE |
+| `shield` | SHIELD and COUNTER (pistol held low behind the barrier) |
+
+The `idle` entry says which pose is shown otherwise. Each pose is two images of the same size, drawn facing right
+(agent 2 is mirrored automatically):
+
+- `agentN-<pose>-body.png`: everything except the weapon.
+- `agentN-<pose>-weapon.png`: the weapon plus the arm/hands holding it. It turns around the shoulder to animate recoil,
+  the reload, hurt and victory.
+
+For each pose `sprites.json` gives four points in those images' pixels: `feet` (on the ground between the feet; every
+pose lines up on it), `pivot` (the shoulder the weapon turns around), `muzzle` (barrel tip: flashes and bullets start
+here) and `grip` (where the reload magazine goes). To change an agent, edit or replace its PNGs in any pixel-art editor
+(Aseprite, Piskel, even Paint), keep the same size or update the points, then rebuild (`npm run build`) or just reload
+the page when using `npm run dev`. If the files are missing the duel falls back to built-in drawn agents.
+
+The shield itself is `shield.png` (the `barrier` entry): drawn facing right with its flat back edge on the left; it's
+mirrored for agent 2 and turned red for COUNTER. COUNTER uses the shield pose too: the shield goes up, the agent swings the pistol up and shoots their own shield, which
+jerks forward and turns red. An enemy pistol shot reaching the red shield flies back red into the shooter; a sniper shot
+just stops. For the `shield` pose, `pivot` is the hand holding the pistol and `muzzle` its tip pointing down.
+
 ## API
 
 | Endpoint | Who | What |

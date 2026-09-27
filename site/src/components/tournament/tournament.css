@@ -1483,3 +1483,66 @@
   from { opacity: 0; }
   to { opacity: 1; }
 }
+
+/* ==========================================================================
+   PIXEL-ART DUEL SCENE
+   ========================================================================== */
+
+.pixel-arena {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #05070b;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.pixel-arena {
+  overflow: hidden;
+}
+
+.pixel-arena canvas {
+  display: block;
+  width: 100%; /* replaced by a whole-number scale once measured */
+  height: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+
+.arena-stage.compact {
+  flex: 0 0 auto;
+  grid-template-columns: 1fr 240px 1fr;
+  padding: 10px 18px;
+  gap: 14px;
+}
+
+.arena-stage.compact .combatant-panel {
+  padding: 10px 14px;
+  gap: 8px;
+}
+
+.arena-stage.compact .combatant-bot-name {
+  font-size: 18px;
+}
+
+.arena-stage.compact .clash-center {
+  gap: 8px;
+}
+
+.arena-stage.compact .clash-move-card {
+  min-width: 80px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+
+.arena-stage.compact .clash-outcome-card {
+  padding: 10px 14px;
+  gap: 4px;
+}
+
+.arena-stage.compact .outcome-icon {
+  font-size: 22px;
+}
