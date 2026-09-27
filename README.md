@@ -125,7 +125,8 @@ here) and `grip` (where the reload magazine goes). To change an agent, edit or r
 (Aseprite, Piskel, even Paint), keep the same size or update the points, then rebuild (`npm run build`) or just reload
 the page when using `npm run dev`. If the files are missing the duel falls back to built-in drawn agents.
 
-COUNTER uses the shield pose too: the shield goes up, the agent swings the pistol up and shoots their own shield, which
+The shield itself is `shield.png` (the `barrier` entry): drawn facing right with its flat back edge on the left; it's
+mirrored for agent 2 and turned red for COUNTER. COUNTER uses the shield pose too: the shield goes up, the agent swings the pistol up and shoots their own shield, which
 jerks forward and turns red. An enemy pistol shot reaching the red shield flies back red into the shooter; a sniper shot
 just stops. For the `shield` pose, `pivot` is the hand holding the pistol and `muzzle` its tip pointing down.
 
