@@ -107,10 +107,12 @@ class Matches(unittest.TestCase):
 
     def test_time_up_tiebreak_on_ammo(self):
         # The second bot shields 3 times, then fumbles forever (fumbles don't refill shields).
+        import dataclasses
+        cfg = dataclasses.replace(CFG, start_ammo=0)
         rep = run_match([bot("def play(me, opp, turn, memory):\n    return RELOAD"),
                          bot("def play(me, opp, turn, memory):\n    return SHIELD")],
-                        CFG)
-        self.assertEqual(len(rep["turns"]), CFG.max_rounds)
+                        cfg)
+        self.assertEqual(len(rep["turns"]), cfg.max_rounds)
         self.assertEqual(rep["result"]["winner"], 0)
         self.assertIn("ammo", rep["result"]["reason"])
 

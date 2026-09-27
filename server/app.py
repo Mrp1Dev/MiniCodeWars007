@@ -604,7 +604,8 @@ def tournament_match(match_id: int):
             "p2_score": row["p2_score"],
             "winner_id": row["winner_id"],
             "draw_reason": row["draw_reason"],
-            "games": json.loads(row["replay_json"])
+            "games": json.loads(row["replay_json"]),
+            "highlight_score": row["highlight_score"],
         }
 
 

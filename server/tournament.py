@@ -559,6 +559,246 @@ def _slim_replay(replay: Dict[str, Any], start_hp: int = 5) -> Dict[str, Any]:
     return replay
 
 
+def get_recent_highlighted_participant_ids(n_rounds: int = 2) -> Set[int]:
+    """Returns participant IDs featured on the Big Screen in the last n rounds."""
+    pids: Set[int] = set()
+    try:
+        with db.connect() as c:
+            rounds = c.execute("""
+                SELECT state_json FROM tournament_rounds
+                WHERE status != 'rolled_back' AND state_json IS NOT NULL
+                ORDER BY id DESC LIMIT ?
+            """, (n_rounds,)).fetchall()
+            match_ids = []
+            for r in rounds:
+                try:
+                    st = json.loads(r["state_json"] or "{}")
+                    mid = st.get("highlight_match_id")
+                    if mid:
+                        match_ids.append(mid)
+                except Exception:
+                    pass
+            if match_ids:
+                placeholders = ",".join("?" * len(match_ids))
+                matches = c.execute(
+                    f"SELECT p1_id, p2_id FROM tournament_matches WHERE id IN ({placeholders})",
+                    match_ids
+                ).fetchall()
+                for m in matches:
+                    if m["p1_id"]:
+                        pids.add(m["p1_id"])
+                    if m["p2_id"]:
+                        pids.add(m["p2_id"])
+    except Exception:
+        pass
+    return pids
+
+
+def calculate_match_highlight_score(
+    games: List[Dict[str, Any]],
+    p1: ParticipantEntry,
+    p2: Optional[ParticipantEntry],
+    winner_id: Optional[int],
+    cfg: Config,
+    history: Optional[Dict[int, Any]] = None,
+    round_number: int = 1,
+    recent_highlighted_pids: Optional[Set[int]] = None,
+) -> float:
+    """Calculates an excitement & drama score for selecting marquee projector duels.
+
+    Incorporates:
+    - In-game HP lead changes and momentum swings
+    - Sudden death tension (both bots at 1 HP)
+    - Nailbiter finishes vs. boring one-sided blowouts
+    - Reverse-sweep comebacks (winning after trailing by >= 2 HP)
+    - Clutches: COUNTER reflections, lethal reflections, and SNIPE clashes
+    - Action variety & anti-loop penalties (stalls / 2-move spam)
+    - Pacing sweet spot (8-20 turns) vs. instant knockouts or 25-turn stalls
+    - Tournament narrative & stakes: Clash of Titans, Underdog Upsets, Bubble drama
+    - Anti-repeat star rotation: ensures diverse student bots get featured
+    """
+    if not games or p2 is None:
+        return 0.0
+
+    p1_total_damage = sum(g.get("result", {}).get("final", [{}, {}])[0].get("damage_dealt", 0) for g in games)
+    p2_total_damage = sum(g.get("result", {}).get("final", [{}, {}])[1].get("damage_dealt", 0) for g in games)
+    total_damage = p1_total_damage + p2_total_damage
+
+    # Zero damage stall games are never chosen as the marquee duel
+    if total_damage == 0:
+        return 0.0
+
+    score = 0.0
+    recent_pids = recent_highlighted_pids or set()
+
+    for g in games:
+        turns = g.get("turns", [])
+        final = g.get("result", {}).get("final") or []
+        g_winner = g.get("result", {}).get("winner")
+        p1_hp_final = final[0].get("hp", 0) if len(final) > 0 else 0
+        p2_hp_final = final[1].get("hp", 0) if len(final) > 1 else 0
+
+        # 1. Base Combat & Damage Engagement (capped at 35)
+        score += min(35.0, total_damage * 3.5)
+
+        # 2. In-Game HP Lead Changes & Brink Tension
+        prev_hp_leader = None
+        hp_lead_changes = 0
+        both_reached_brink = False
+        p1_actions = []
+        p2_actions = []
+        fumbles_count = 0
+
+        for t in turns:
+            st = t.get("state") or []
+            hp1 = st[0].get("hp", cfg.start_hp) if len(st) > 0 else cfg.start_hp
+            hp2 = st[1].get("hp", cfg.start_hp) if len(st) > 1 else cfg.start_hp
+
+            if hp1 <= 1 and hp2 <= 1 and hp1 > 0 and hp2 > 0:
+                both_reached_brink = True
+
+            curr_leader = 0 if hp1 > hp2 else (1 if hp2 > hp1 else None)
+            if curr_leader is not None and prev_hp_leader is not None and curr_leader != prev_hp_leader:
+                hp_lead_changes += 1
+            if curr_leader is not None:
+                prev_hp_leader = curr_leader
+
+            acts = t.get("actions") or []
+            if len(acts) > 0 and acts[0]:
+                p1_actions.append(acts[0])
+            if len(acts) > 1 and acts[1]:
+                p2_actions.append(acts[1])
+
+            if _turn_fumbled(t, 0):
+                fumbles_count += 1
+            if _turn_fumbled(t, 1):
+                fumbles_count += 1
+
+        # Reward back-and-forth momentum shifts
+        score += min(30.0, hp_lead_changes * 15.0)
+
+        # Both on the brink of elimination (1 HP vs 1 HP showdown)
+        if both_reached_brink:
+            score += 25.0
+
+        # 3. Nailbiter vs Blowout Finish
+        winner_final_hp = p1_hp_final if g_winner == 0 else (p2_hp_final if g_winner == 1 else None)
+        if winner_final_hp is None:
+            # Game ended in an engine tiebreak
+            score += 35.0
+        elif winner_final_hp == 1:
+            score += 30.0  # Decided on the very last hit
+        elif winner_final_hp == 2:
+            score += 15.0
+        elif winner_final_hp >= cfg.start_hp:
+            # Clean sweep blowout: boring one-sided stomp for the big screen
+            score -= 25.0
+
+        # 4. Dramatic Comeback / Reverse Sweep in HP
+        if g_winner == 0:
+            max_deficit = 0
+            for t in turns:
+                st = t.get("state") or []
+                h1 = st[0].get("hp", cfg.start_hp) if len(st) > 0 else cfg.start_hp
+                h2 = st[1].get("hp", cfg.start_hp) if len(st) > 1 else cfg.start_hp
+                if h2 > h1:
+                    max_deficit = max(max_deficit, h2 - h1)
+            if max_deficit >= 3:
+                score += 35.0
+            elif max_deficit >= 2:
+                score += 20.0
+        elif g_winner == 1:
+            max_deficit = 0
+            for t in turns:
+                st = t.get("state") or []
+                h1 = st[0].get("hp", cfg.start_hp) if len(st) > 0 else cfg.start_hp
+                h2 = st[1].get("hp", cfg.start_hp) if len(st) > 1 else cfg.start_hp
+                if h1 > h2:
+                    max_deficit = max(max_deficit, h1 - h2)
+            if max_deficit >= 3:
+                score += 35.0
+            elif max_deficit >= 2:
+                score += 20.0
+
+        # 5. Tactical Clutches (Reflections & Snipe Clashes)
+        events = [ev for t in turns for ev in t.get("events", [])]
+        reflections = [ev for ev in events if ev.get("type") == "reflected"]
+        blocks = [ev for ev in events if ev.get("type") == "blocked"]
+
+        score += len(reflections) * 15.0
+        score += min(10.0, len(blocks) * 2.0)
+
+        # Did a reflection land the knockout blow on the final turn?
+        if turns and reflections:
+            last_turn_events = turns[-1].get("events", [])
+            if any(ev.get("type") == "reflected" for ev in last_turn_events) and g_winner is not None:
+                score += 30.0
+
+        # Simultaneous SNIPE clash
+        snipe_clashes = sum(1 for ev in events if ev.get("action") == "SNIPE" and ev.get("with") == "SNIPE")
+        score += snipe_clashes * 15.0
+
+        # 6. Action Variety & Anti-Loop Penalty
+        p1_unique = set(a for a in p1_actions if a != FUMBLE)
+        p2_unique = set(a for a in p2_actions if a != FUMBLE)
+        total_turns = len(turns)
+
+        if total_turns >= 8 and (len(p1_unique) <= 2 or len(p2_unique) <= 2):
+            score -= 30.0  # Monotonous repetitive loop
+        elif len(p1_unique) >= 4 and len(p2_unique) >= 4:
+            score += 15.0  # Diverse tactical action variety
+
+        # 7. Pacing / Goldilocks Duration
+        if 8 <= total_turns <= 20:
+            score += 15.0  # Ideal match length for crowd viewing
+        elif total_turns < 6:
+            score -= 15.0  # Too fast / flash knockout
+        elif total_turns >= cfg.max_rounds and g_winner is None:
+            score -= 20.0  # Time up stall
+
+        # Penalize execution fumbles/timeouts
+        score -= fumbles_count * 15.0
+        if fumbles_count == 0:
+            score += 10.0  # Clean bot execution
+
+    # 8. Tournament Storyline & Stakes
+    h1 = history.get(p1.id) if history else None
+    h2 = history.get(p2.id) if history else None
+
+    # Anti-Repeat Star Rotation
+    if p1.id in recent_pids:
+        score -= 40.0
+    if p2.id in recent_pids:
+        score -= 40.0
+
+    # Clash of Titans (Swiss Rounds 3+)
+    if h1 and h2 and round_number >= 3:
+        w1, l1 = getattr(h1, "match_wins", 0), getattr(h1, "match_losses", 0)
+        w2, l2 = getattr(h2, "match_wins", 0), getattr(h2, "match_losses", 0)
+        if (w1 >= 2 and l1 == 0) and (w2 >= 2 and l2 == 0):
+            score += 30.0
+        elif (w1 >= round_number - 2) and (w2 >= round_number - 2):
+            score += 15.0
+
+    # Underdog Upset Bonus
+    if h1 and h2 and winner_id is not None:
+        r1 = getattr(h1, "rank", 999)
+        r2 = getattr(h2, "rank", 999)
+        winner_rank = r1 if winner_id == p1.id else r2
+        loser_rank = r2 if winner_id == p1.id else r1
+        if winner_rank - loser_rank >= 25:
+            score += 30.0
+
+    # Cut-Line Bubble Drama (Late Swiss Rounds 6, 7, 8)
+    if h1 and h2 and round_number >= 6:
+        r1 = getattr(h1, "rank", 999)
+        r2 = getattr(h2, "rank", 999)
+        if (25 <= r1 <= 38) or (25 <= r2 <= 38):
+            score += 25.0
+
+    return max(0.0, round(score, 2))
+
+
 def run_match_series(
     p1: ParticipantEntry,
     p2: Optional[ParticipantEntry],
@@ -568,7 +808,8 @@ def run_match_series(
     seed_base: int = 1000,
     history: Optional[Dict[int, Any]] = None,
     round_number: int = 1,
-    cfg: Optional[Config] = None
+    cfg: Optional[Config] = None,
+    recent_highlighted_pids: Optional[Set[int]] = None,
 ) -> Dict[str, Any]:
     """Runs a 1v1 match (or multi-game series if requested).
     - Engine game draw: neither bot gets a game win
@@ -758,24 +999,16 @@ def run_match_series(
                     winner_id = p1.id if h1_hash < h2_hash else p2.id
                     draw_reason = "tiebreak_seed"
 
-    # Calculate action variety and defensive highlights
-    blocks = sum(sum(1 for ev in t.get("events", []) if ev.get("type") == "blocked") for g in games for t in g.get("turns", []))
-    reflections = sum(sum(1 for ev in t.get("events", []) if ev.get("type") == "reflected") for g in games for t in g.get("turns", []))
-    total_damage = p1_total_damage + p2_total_damage
-
-    # Zero-damage stall games are never chosen as the marquee duel
-    if total_damage == 0:
-        highlight_score = 0.0
-    else:
-        highlight_score = (
-            (total_damage * 10.0)
-            + (lead_changes * 25.0)
-            + (reflections * 12.0)
-            + (blocks * 2.0)
-            + (len(games) * 12.0)
-            + (25.0 if any(g["result"]["winner"] is not None for g in games) else 0.0)
-            - ((p1_fumbles + p2_fumbles) * 4.0)
-        )
+    highlight_score = calculate_match_highlight_score(
+        games=games,
+        p1=p1,
+        p2=p2,
+        winner_id=winner_id,
+        cfg=cfg,
+        history=history,
+        round_number=round_number,
+        recent_highlighted_pids=recent_highlighted_pids,
+    )
 
     return {
         "p1_id": p1.id,
@@ -805,6 +1038,7 @@ def precompute_round_matches(
     history: Optional[Dict[int, Any]] = None,
     cancel: Optional[threading.Event] = None,
     cfg: Optional[Config] = None,
+    recent_highlighted_pids: Optional[Set[int]] = None,
 ) -> List[Dict[str, Any]]:
     """Runs all (match_index, p1, p2) pairings in parallel. Results keep the pairings' order.
     Once `cancel` is set, matches that haven't started are skipped (their result is None)."""
@@ -816,7 +1050,8 @@ def precompute_round_matches(
             return None
         idx, p1, p2 = item
         seed = 10000 * round_number + idx * 10
-        series = run_match_series(p1, p2, max_games, wins_required, is_swiss, seed, history, round_number, cfg=cfg)
+        series = run_match_series(p1, p2, max_games, wins_required, is_swiss, seed, history, round_number, cfg=cfg,
+                                  recent_highlighted_pids=recent_highlighted_pids)
         series["match_index"] = idx
         series["stage"] = stage_name
         return series
@@ -826,14 +1061,14 @@ def precompute_round_matches(
 
 
 def _pick_highlight(candidates: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    """The most exciting match whose playback fits the round's time budget (else the shortest)."""
+    """The most exciting match whose playback fits the round's time budget (else highest score)."""
     pool = [m for m in candidates if not m["is_bye"]]
     if not pool:
         return candidates[0] if candidates else None
     fitting = [m for m in pool if _playback_ms(m["games"]) <= ROUND_TARGET_MS]
     if fitting:
-        return max(fitting, key=lambda m: m["highlight_score"])
-    return min(pool, key=lambda m: (_playback_ms(m["games"]), -m["highlight_score"]))
+        return max(fitting, key=lambda m: (m["highlight_score"], -abs(_playback_ms(m["games"]) - 15000)))
+    return max(pool, key=lambda m: (m["highlight_score"], -abs(_playback_ms(m["games"]) - 15000)))
 
 
 # Changes whenever stored results change, so a prefetched stage can tell whether it was
@@ -914,20 +1149,24 @@ def _compute_stage(stage: str, cancel: Optional[threading.Event] = None) -> Dict
         if not pairings:
             raise ValueError("No eligible tournament entries found to pair.")
         history = {s.participant_id: s for s in compute_standings_from_history(rnd - 1)} if rnd > 1 else {}
+        recent_pids = get_recent_highlighted_participant_ids(2)
         results = precompute_round_matches(rnd, stage, [(i, p1, p2) for i, (p1, p2) in enumerate(pairings)],
-                                           1, 1, True, history, cancel, cfg=stage_cfg)
+                                           1, 1, True, history, cancel, cfg=stage_cfg,
+                                           recent_highlighted_pids=recent_pids)
         if cancel is not None and cancel.is_set():
             raise _Cancelled()
-        # Marquee duel from the top of the field (pairings are best-first), without saying so on screen.
+        # Scan ALL non-bye matches across the round for the most thrilling duel
         non_bye = [m for m in results if not m["is_bye"]]
-        highlight = _pick_highlight(non_bye[:max(4, len(non_bye) // 4)] or results)
+        highlight = _pick_highlight(non_bye or results)
     else:
         pairings = _elimination_pairings(stage)
         history = {s.participant_id: s for s in compute_standings_from_history(SWISS_ROUNDS)}
+        recent_pids = get_recent_highlighted_participant_ids(2)
         if stage in (STAGE_RO32, STAGE_RO16):
             if not pairings:
                 raise ValueError("No one qualified for the elimination bracket.")
-            results = precompute_round_matches(rnd, stage, pairings, 1, 1, False, history, cancel, cfg=stage_cfg)
+            results = precompute_round_matches(rnd, stage, pairings, 1, 1, False, history, cancel, cfg=stage_cfg,
+                                               recent_highlighted_pids=recent_pids)
             if cancel is not None and cancel.is_set():
                 raise _Cancelled()
             highlight = _pick_highlight(results)
@@ -935,7 +1174,7 @@ def _compute_stage(stage: str, cancel: Optional[threading.Event] = None) -> Dict
             _, w1, w2 = pairings[0]
             series = run_match_series(w1, w2, 1, 1,
                                       is_swiss=False, seed_base=10000 * rnd, history=history, round_number=rnd,
-                                      cfg=stage_cfg)
+                                      cfg=stage_cfg, recent_highlighted_pids=recent_pids)
             series.update(match_index=0, stage=stage, highlight_score=100.0)
             results, highlight = [series], series
     return {"results": results, "highlight": highlight}
@@ -1566,6 +1805,7 @@ def _build_screen_payload() -> Dict[str, Any]:
                 "winner_id": row["winner_id"],
                 "draw_reason": row["draw_reason"],
                 "games": json.loads(row["replay_json"] or "[]"),
+                "highlight_score": row["highlight_score"],
             }
 
     # 3. Elimination Bracket Tree (empty before the cut)
@@ -1745,7 +1985,8 @@ def _build_participant_cache():
                 "p2_score": m["p2_score"],
                 "winner_id": m["winner_id"],
                 "draw_reason": m["draw_reason"],
-                "games": json.loads(m["replay_json"]) if m.get("replay_json") else []
+                "games": json.loads(m["replay_json"]) if m.get("replay_json") else [],
+                "highlight_score": m.get("highlight_score", 0.0),
             }
             if m["is_bye"]:
                 bye_pids.add(m["p1_id"])
