@@ -23,9 +23,13 @@ const TRAVEL = { SHOOT: 230, SNIPE: 70 };
 const REFLECT_BACK = 220;
 // COUNTER: the shield goes up, the agent swings the pistol up and shoots their own shield, which
 // jerks forward and turns red. It is red before any enemy shot can land (snipe at 220ms, pistol at 380ms).
-const COUNTER_AIM = [{ t: 0, v: 0 }, { t: 40, v: 0 }, { t: 90, v: -1.35 }, { t: 220, v: -1.35 }, { t: 340, v: 0 }];
-const COUNTER_FIRE = 95;
-const COUNTER_HIT = 120;
+// The arm is shown in the aiming (pistol) pose from COUNTER_RAISE to COUNTER_LOWER; the angle is
+// how far it hangs below fully aimed (0 = pointing straight ahead at the shield).
+const COUNTER_RAISE = 30;
+const COUNTER_LOWER = 330;
+const COUNTER_AIM = [{ t: COUNTER_RAISE, v: 1.3 }, { t: 100, v: 0 }, { t: 230, v: 0 }, { t: COUNTER_LOWER, v: 1.3 }];
+const COUNTER_FIRE = 110;
+const COUNTER_HIT = 125;
 const HURT_MS = 300;
 const FALL_MS = 360;
 
@@ -417,6 +421,29 @@ function blit(g, rows, pal, x, y) {
 // the built-in drawn agents are used instead.
 
 let SPRITES = null;
+let BARRIER = null; // { cyan, red, w, h }: the shield barrier, and the red version for COUNTER
+let manifest = null;
+
+function makeBarrier(image) {
+  const cyan = document.createElement("canvas");
+  cyan.width = image.width;
+  cyan.height = image.height;
+  cyan.getContext("2d").drawImage(image, 0, 0);
+  const red = document.createElement("canvas");
+  red.width = image.width;
+  red.height = image.height;
+  const rg = red.getContext("2d");
+  rg.drawImage(image, 0, 0);
+  const px = rg.getImageData(0, 0, red.width, red.height);
+  for (let k = 0; k < px.data.length; k += 4) {
+    const l = (3 * px.data[k] + 6 * px.data[k + 1] + px.data[k + 2]) / 10;
+    px.data[k] = Math.min(255, l * 1.25 + 45);
+    px.data[k + 1] = l * 0.35;
+    px.data[k + 2] = l * 0.3;
+  }
+  rg.putImageData(px, 0, 0);
+  return { cyan, red, w: image.width, h: image.height };
+}
 
 function loadSprites() {
   const img = (file) => new Promise((ok, fail) => {
@@ -427,6 +454,7 @@ function loadSprites() {
   });
   return fetch("/sprites/sprites.json", { cache: "no-cache" })
     .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`sprites.json: ${r.status}`))))
+    .then((m) => (manifest = m))
     .then((m) => Promise.all(["agent1", "agent2"].map(async (k) => {
       const poses = {};
       for (const [name, pose] of Object.entries(m[k])) {
@@ -437,7 +465,10 @@ function loadSprites() {
       }
       return { idle: poses[m[k].idle] ? m[k].idle : Object.keys(poses)[0], poses };
     })))
-    .then((list) => { SPRITES = list; })
+    .then(async (list) => {
+      if (manifest.barrier?.image) BARRIER = makeBarrier(await img(manifest.barrier.image));
+      SPRITES = list;
+    })
     .catch((err) => { console.warn("Duel sprites not loaded, using built-in agents:", err); });
 }
 
@@ -477,7 +508,7 @@ function spriteAngle(a, e) {
     case "recoil": return -0.2;
     case "reload": return lerpFrames(SPRITE_RELOAD_ANGLE, e, "v");
     case "shield": return 0; // the shield pose already holds the pistol low
-    case "counter": return lerpFrames(COUNTER_AIM, e, "v");
+    case "counter": return e >= COUNTER_RAISE && e < COUNTER_LOWER ? lerpFrames(COUNTER_AIM, e, "v") : 0;
     case "hurt": return 0.35;
     case "victory": return -0.95;
     default: return 0;
@@ -787,7 +818,7 @@ function planTurn(s, e) {
       else if (act === "SHIELD") a.pose = "shield";
       else if (act === "COUNTER") a.pose = "counter";
       else if (act === "RELOAD") a.pose = "reload";
-      else if (act === "FUMBLE") a.pose = e >= 80 ? "fumble" : "aim";
+      // FUMBLE: no animation; the agent just holds the gun up and doesn't fire
       if (a.pose === "recoil") a.lean = a.weapon === "rifle" ? -2 : -1;
     });
 
@@ -842,12 +873,14 @@ function planTurn(s, e) {
   agents.forEach((a) => {
     a.rig = rig(a.pose, a.weapon, e);
     if (SPRITES) {
-      const S = spriteFor(agents.indexOf(a), a.action);
+      const idx = agents.indexOf(a);
+      const aiming = a.pose === "counter" && e >= COUNTER_RAISE && e < COUNTER_LOWER;
+      const S = aiming ? SPRITES[idx].poses.pistol || spriteFor(idx, a.action) : spriteFor(idx, a.action);
       a.spr = S;
       // while falling, the weapon settles flat on the ground instead of pointing at the sky
       a.spriteAngle = a.fall > 0 ? (Math.PI / 2) * easeOut(a.fall) : spriteAngle(a, e);
       a.hideWeapon = a.pose === "fumble";
-      a.reloadHand = a.pose === "reload" ? spriteReloadHand(S, a.spriteAngle, e) : null;
+      a.reloadHand = null; // the weapon lowers and racks; no magazine flying to it
     }
     if (a.fall > 0 && a.rig.weapon) {
       a.dropped = a.rig.weapon; // it slips out of the hand and lands beside them
@@ -1063,7 +1096,23 @@ function drawDefences(g, plan, e, now) {
     const dir = DIRS[i];
     const blockedHere = plan.shots.find((s) => s.def === i && (s.end === "shield" || s.end === "counter" || s.end === "reflect"));
     const flare = blockedHere && e >= blockedHere.impact && e < blockedHere.impact + 200 ? 1 : 0;
-    if ((a.action === "SHIELD" || a.action === "COUNTER") && e > 40 && e < 720) {
+    if ((a.action === "SHIELD" || a.action === "COUNTER") && e > 40 && e < 720 && BARRIER) {
+      const counter = a.action === "COUNTER";
+      const back = SHIELD_BACK + (counter ? counterJerk(e) : 0);
+      const img = counter && e >= COUNTER_HIT ? BARRIER.red : BARRIER.cyan;
+      g.save();
+      g.translate(XS[i] + dir * back, FEET - BARRIER.h - 3);
+      g.scale(dir, 1);
+      g.globalAlpha = clamp01((e - 40) / 60) * (0.85 + 0.15 * Math.sin(now / 90));
+      g.drawImage(img, 0, 0);
+      if (flare) {
+        g.globalCompositeOperation = "lighter";
+        g.globalAlpha = 0.7;
+        g.drawImage(img, 0, 0);
+      }
+      g.restore();
+    } else if ((a.action === "SHIELD" || a.action === "COUNTER") && e > 40 && e < 720) {
+      // built-in fallback when shield.png isn't available
       const counter = a.action === "COUNTER";
       const bx = XS[i] + dir * (SHIELD_X + (counter ? counterJerk(e) : 0));
       const cy = FEET - 36;
@@ -1083,13 +1132,15 @@ function drawDefences(g, plan, e, now) {
   });
 }
 
-const SHIELD_X = 30; // how far in front of an agent the shield barrier stands
+const SHIELD_BACK = 55; // the barrier's flat back edge, in front of the fully aimed pistol
+const SHIELD_W = 18; // barrier width (shield.png); enemy shots stop at its curved front
+const SHIELD_X = SHIELD_BACK + SHIELD_W;
 
 /** How far a COUNTER shield has been knocked forward by its owner's shot. */
 function counterJerk(e) {
   if (e < COUNTER_HIT) return 0;
   const t = e - COUNTER_HIT;
-  return t < 40 ? Math.round((7 * t) / 40) : Math.max(2, Math.round(7 - (t - 40) / 30));
+  return t < 45 ? Math.round((14 * t) / 45) : Math.max(4, Math.round(14 - (t - 45) / 20));
 }
 
 function weaponFor(action) {
@@ -1160,8 +1211,8 @@ function drawShots(g, plan, e) {
   plan.agents.forEach((a, i) => {
     if (a.action !== "COUNTER" || a.fall > 0 || e < COUNTER_FIRE || e >= COUNTER_FIRE + 70) return;
     const d = DIRS[i];
-    const [mx, my] = muzzleWorld(i, "shield", lerpFrames(COUNTER_AIM, COUNTER_FIRE, "v"));
-    const tx = XS[i] + d * SHIELD_X;
+    const [mx, my] = muzzleWorld(i, "pistol", 0);
+    const tx = XS[i] + d * SHIELD_BACK; // the agent shoots the back of their own shield
     if (e < COUNTER_HIT) {
       const bx = Math.round(mx + (tx - mx) * ((e - COUNTER_FIRE) / (COUNTER_HIT - COUNTER_FIRE)));
       for (let k = 1; k <= 5; k++) rect(g, bx - d * k, my, 1, 1, `rgba(255,200,110,${0.7 - k * 0.12})`);
@@ -1266,31 +1317,13 @@ function spawnTurnEffects(sc, plan, e, now) {
       }
     }
     if (a.action === "COUNTER" && a.fall === 0) {
-      if (e >= COUNTER_FIRE) {
-        once(`cfire${i}`, () => {
-          const [mx, my] = muzzleWorld(i, "shield", lerpFrames(COUNTER_AIM, COUNTER_FIRE, "v"));
-          sc.particles.push({
-            x: mx - d * 4, y: my - 3, vx: -d * (25 + Math.random() * 25), vy: -70 - Math.random() * 30,
-            life: 0, max: 5000, color: BRASS, g: 300, casing: true, floor: FEET + Math.floor(Math.random() * 6) - 2,
-          });
-          for (let k = 0; k < 3; k++) {
-            sc.particles.push({ x: mx, y: my - 1, vx: d * (6 + Math.random() * 10), vy: -12 - Math.random() * 10, life: 0, max: 500, color: "rgba(185,190,200,0.5)", g: -15, size: 2 });
-          }
-        });
-      }
       if (e >= COUNTER_HIT) {
         once(`chit${i}`, () => {
-          const [, my] = muzzleWorld(i, "shield", lerpFrames(COUNTER_AIM, COUNTER_FIRE, "v"));
-          spawnSparks(sc, XS[i] + d * SHIELD_X, my, ["#ff5a4a", "#ffd0c8", "#ffffff"], 10, d);
+          const [, my] = muzzleWorld(i, "pistol", 0);
+          spawnSparks(sc, XS[i] + d * SHIELD_BACK, my, ["#ff5a4a", "#ffd0c8", "#ffffff"], 10, d);
           sc.shake = Math.max(sc.shake, 1.5);
         });
       }
-    }
-    if (a.action === "FUMBLE" && e >= 80) {
-      once(`fumble${i}`, () => {
-        addFloat(sc, "FUMBLE?", XS[i], FEET - 84, "#ff7a6a", now);
-        sc.particles.push({ x: XS[i] + d * 14, y: FEET - 56, vx: d * 50, vy: -120, life: 0, max: 5000, color: GUN, g: 330, casing: true, vanish: true, floor: FEET, size: 5 });
-      });
     }
     if (a.koAt !== null && e >= a.koAt + FALL_MS) {
       once(`dust${i}`, () => {

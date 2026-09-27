@@ -1,5 +1,5 @@
 {
-  "_help": "Big Screen duel sprites. Each agent has poses (pistol, rifle, shield). A pose is two PNGs of the same size, drawn facing RIGHT: 'body' (everything but the weapon) and 'weapon' (the weapon plus the arm/hands holding it). Points are pixels inside those PNGs: feet = ground point between the feet (every pose lines up on it), pivot = shoulder the weapon turns around, muzzle = barrel tip, grip = where a reload magazine goes in. Agent 2 is mirrored automatically. Moves use: SHOOT and RELOAD = pistol, SNIPE = rifle, SHIELD and COUNTER = shield (for the shield pose, pivot is the hand holding the pistol and muzzle is the tip of the pistol pointing down), anything else = the 'idle' pose.",
+  "_help": "Big Screen duel sprites. Each agent has poses (pistol, rifle, shield). A pose is two PNGs of the same size, drawn facing RIGHT: 'body' (everything but the weapon) and 'weapon' (the weapon plus the arm/hands holding it). Points are pixels inside those PNGs: feet = ground point between the feet (every pose lines up on it), pivot = shoulder the weapon turns around, muzzle = barrel tip, grip = where a reload magazine goes in. Agent 2 is mirrored automatically. Moves use: SHOOT and RELOAD = pistol, SNIPE = rifle, SHIELD and COUNTER = shield (for the shield pose, pivot is the hand holding the pistol and muzzle is the tip of the pistol pointing down), anything else = the 'idle' pose. 'barrier' is the shield image cast in front of the agent (drawn facing right, flat back edge on the left); COUNTER shows it turned red.",
   "agent1": {
     "idle": "pistol",
     "pistol": {
@@ -125,5 +125,8 @@
         33
       ]
     }
+  },
+  "barrier": {
+    "image": "shield.png"
   }
 }
