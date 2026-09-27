@@ -184,7 +184,7 @@ Code = Field(max_length=MAX_SOURCE_CHARS)
 class RegisterBody(BaseModel):
     roll: str = Field(min_length=3, max_length=20)
     name: str = Field(min_length=1, max_length=60)
-    bot_name: str = Field(min_length=1, max_length=50)
+    bot_name: Optional[str] = Field(default=None, max_length=50)
 
     @field_validator("roll")
     @classmethod
@@ -205,10 +205,10 @@ class RegisterBody(BaseModel):
     @field_validator("bot_name")
     @classmethod
     def clean_bot_name(cls, v):
+        if v is None:
+            return None
         v = " ".join(v.split())
-        if not v:
-            raise ValueError("bot name can't be empty")
-        return v
+        return v or None
 
 
 class CodeBody(BaseModel):
@@ -245,6 +245,26 @@ class AnnounceBody(BaseModel):
 
 class RollBody(BaseModel):
     roll: str
+
+
+class TournAdvanceBody(BaseModel):
+    target_stage: Optional[str] = None
+
+
+class TournPauseBody(BaseModel):
+    paused: Optional[bool] = None
+
+
+class TournStepBody(BaseModel):
+    step: int
+
+
+class TournHighlightBody(BaseModel):
+    match_id: int
+
+
+class TournSeedBody(BaseModel):
+    count: int = Field(default=64, ge=4, le=500)
 
 
 # --- public ------------------------------------------------------------------------------
@@ -303,19 +323,21 @@ def starter():
 def register(body: RegisterBody):
     """Signs in with roll number + name + bot_name. Identified directly by roll number in local browser storage;
     no crypto tokens or multi-laptop session tracking."""
+    bot_name = body.bot_name or body.name
     row = db.participant_by_roll(body.roll)
     if row is None:
         require_phase("registration", "coding")
         try:
-            pid = db.create_participant(body.roll, body.name, body.bot_name)
-            return {"token": body.roll, "id": pid, "roll": body.roll, "name": body.name, "bot_name": body.bot_name, "new": True}
+            pid = db.create_participant(body.roll, body.name, bot_name)
+            return {"token": body.roll, "id": pid, "roll": body.roll, "name": body.name, "bot_name": bot_name, "new": True}
         except sqlite3.IntegrityError:  # registered by a request that raced this one
             row = db.participant_by_roll(body.roll)
     else:
-        db.update_participant(row["id"], body.name, body.bot_name)
-        row = db.participant_by_roll(body.roll)
-    bot_name = row["bot_name"] if "bot_name" in row.keys() and row["bot_name"] else body.bot_name
-    return {"token": row["roll"], "id": row["id"], "roll": row["roll"], "name": row["name"], "bot_name": bot_name, "new": False}
+        if body.bot_name and not row["bot_name"]:
+            db.update_participant(row["id"], bot_name=body.bot_name)
+            row = db.participant_by_roll(body.roll)
+    resolved_bot_name = row["bot_name"] if ("bot_name" in row.keys() and row["bot_name"]) else (row["name"] if "name" in row.keys() else bot_name)
+    return {"token": row["roll"], "id": row["id"], "roll": row["roll"], "name": row["name"], "bot_name": resolved_bot_name, "new": False}
 
 
 # --- participant -------------------------------------------------------------------------
@@ -447,10 +469,22 @@ def set_phase(body: PhaseBody):
 @app.post("/api/admin/extend", dependencies=[Depends(admin)])
 def extend(body: ExtendBody):
     ev = db.get_event()
-    if ev["phase"] not in ("coding", "locked") or not ev["ends_at"]:
-        raise HTTPException(400, "no running timer to extend")
-    db.set_event(phase="coding", ends_at=ev["ends_at"] + body.minutes * 60)
+    if ev["phase"] not in ("coding", "locked"):
+        raise HTTPException(400, f"cannot adjust timer during {ev['phase']} phase")
+    now = time.time()
+    if body.minutes > 0:
+        # If adding time, start from current ends_at (if still in future) or from now (if expired/locked/None)
+        current_ends = ev["ends_at"] if (ev.get("ends_at") and ev["ends_at"] > now) else now
+        new_ends = current_ends + body.minutes * 60
+        db.set_event(phase="coding", ends_at=new_ends)
+    else:
+        # If reducing timer, ensure there is an active running timer
+        if not ev.get("ends_at") or ev["ends_at"] <= now:
+            raise HTTPException(400, "no running timer to reduce")
+        new_ends = max(now + 10, ev["ends_at"] + body.minutes * 60)
+        db.set_event(phase="coding", ends_at=new_ends)
     return status()
+
 
 
 @app.post("/api/admin/announce", dependencies=[Depends(admin)])
@@ -481,6 +515,105 @@ def ai_usage():
 def ai_requests(status: Optional[str] = None, limit: int = 100):
     """Recent AI requests with the raw model output, for checking and tuning the prompt."""
     return [dict(r) for r in db.ai_requests(min(limit, 1000), status)]
+
+
+# --- tournament ------------------------------------------------------------------------
+from . import tournament
+
+
+@app.get("/api/tournament/status")
+def tournament_status():
+    """Ultra-fast tournament status and clock offset, served from memory cache."""
+    return tournament.get_tournament_status()
+
+
+@app.get("/api/tournament/screen")
+def tournament_screen():
+    """Aggregated payload for the Big Screen projector (tiers, highlight replay, countdown)."""
+    return tournament.get_screen_data()
+
+
+@app.get("/api/tournament/bracket")
+def tournament_bracket():
+    """Current 32-player single-elimination bracket tree."""
+    return tournament.build_elimination_bracket()
+
+
+@app.get("/api/tournament/match/{match_id}")
+def tournament_match(match_id: int):
+    with db.connect() as c:
+        row = c.execute("""
+            SELECT m.*, p1.bot_name as p1_bot, p1.name as p1_real,
+                        p2.bot_name as p2_bot, p2.name as p2_real
+            FROM tournament_matches m
+            JOIN participants p1 ON p1.id = m.p1_id
+            LEFT JOIN participants p2 ON p2.id = m.p2_id
+            WHERE m.id = ?
+        """, (match_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, "no such match")
+        reveal_names = row["stage"] in ("ro8_m1", "ro8_m2", "ro8_m3", "ro8_m4", "ro4_m1", "ro4_m2", "finals", "champion")
+        return {
+            "match_id": row["id"],
+            "stage": row["stage"],
+            "is_bye": bool(row["is_bye"]),
+            "p1_id": row["p1_id"],
+            "p2_id": row["p2_id"],
+            "p1_name": row["p1_bot"] or row["p1_real"],
+            "p2_name": (row["p2_bot"] or row["p2_real"]) if row["p2_id"] else "BYE",
+            "p1_real_name": row["p1_real"] if reveal_names else (row["p1_bot"] or row["p1_real"]),
+            "p2_real_name": (row["p2_real"] if reveal_names else (row["p2_bot"] or row["p2_real"])) if row["p2_id"] else "",
+            "p1_score": row["p1_score"],
+            "p2_score": row["p2_score"],
+            "winner_id": row["winner_id"],
+            "draw_reason": row["draw_reason"],
+            "games": json.loads(row["replay_json"])
+        }
+
+
+@app.post("/api/admin/tournament/start", dependencies=[Depends(admin)])
+def admin_tournament_start():
+    db.set_event(phase="tournament")
+    return tournament.start_tournament()
+
+
+@app.post("/api/admin/tournament/advance", dependencies=[Depends(admin)])
+def admin_tournament_advance(body: TournAdvanceBody = TournAdvanceBody()):
+    try:
+        return tournament.advance_stage(body.target_stage)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+
+@app.post("/api/admin/tournament/pause", dependencies=[Depends(admin)])
+def admin_tournament_pause(body: TournPauseBody = TournPauseBody()):
+    return tournament.toggle_pause(body.paused)
+
+
+@app.post("/api/admin/tournament/step", dependencies=[Depends(admin)])
+def admin_tournament_step(body: TournStepBody):
+    return tournament.set_turn_step(body.step)
+
+
+@app.post("/api/admin/tournament/highlight", dependencies=[Depends(admin)])
+def admin_tournament_highlight(body: TournHighlightBody):
+    tournament.update_state(highlight_match_id=body.match_id)
+    return tournament.get_screen_data()
+
+
+@app.post("/api/admin/tournament/seed", dependencies=[Depends(admin)])
+def admin_tournament_seed(body: TournSeedBody = TournSeedBody()):
+    from . import seed_bots
+    count = seed_bots.seed_database(body.count)
+    return tournament.start_tournament()
+
+
+@app.api_route("/api/admin/tournament/clear-mock", methods=["GET", "POST"], dependencies=[Depends(admin)])
+def admin_tournament_clear_mock():
+    from . import seed_bots
+    seed_bots.clear_mock_participants()
+    return tournament.start_tournament()
 
 
 # --- website ---------------------------------------------------------------------------
@@ -517,10 +650,12 @@ class WebFiles(StaticFiles):
 
 @app.get("/admin", response_class=FileResponse)
 @app.get("/admin/{path:path}", response_class=FileResponse)
-def admin_page():
+@app.get("/screen", response_class=FileResponse)
+@app.get("/screen/{path:path}", response_class=FileResponse)
+def spa_page():
     index_file = WEB_DIR / "index.html"
     if index_file.is_file():
-        return FileResponse(index_file)
+        return FileResponse(index_file, headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
     raise HTTPException(404, "Website not built yet")
 
 

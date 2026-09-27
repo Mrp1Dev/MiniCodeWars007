@@ -21,6 +21,7 @@ import {
   IconUser,
 } from "./icons";
 import "../admin.css";
+import AdminTournament from "./tournament/AdminTournament";
 
 const PRESET_MINUTES = [15, 20, 30, 45];
 const EXTEND_MINUTES = [2, 5, 10, -5];
@@ -344,8 +345,15 @@ export default function Admin({ onExit }) {
           >
             Sign out
           </button>
+          <button
+            className="btn btn-sm btn-gold"
+            onClick={() => window.open("/screen", "_blank")}
+            title="Open projector Big Screen in a new tab"
+          >
+            Big Screen ↗
+          </button>
           {onExit && (
-            <button className="btn btn-sm btn-gold" onClick={onExit}>
+            <button className="btn btn-sm" onClick={onExit}>
               ← Participant Site
             </button>
           )}
@@ -461,12 +469,15 @@ export default function Admin({ onExit }) {
                   <p className="muted" style={{ margin: 0, fontSize: "13px" }}>
                     Submissions are locked. Participants can still test bots. You can advance to the tournament or reopen coding.
                   </p>
-                  <div className="btn-group">
+                  <div className="btn-group" style={{ flexWrap: "wrap" }}>
                     <button className="btn btn-sm btn-gold" onClick={() => handleSetPhase("tournament")}>
                       Advance to Tournament
                     </button>
                     <button className="btn btn-sm" onClick={() => handleExtend(5)}>
                       Reopen Coding (+5m)
+                    </button>
+                    <button className="btn btn-sm" onClick={() => handleExtend(10)}>
+                      +10m
                     </button>
                     <button className="btn btn-sm btn-quiet" onClick={() => handleSetPhase("registration")}>
                       Reset to Registration
@@ -578,6 +589,12 @@ export default function Admin({ onExit }) {
           >
             <IconSpark size={15} /> AI Usage & Logs
             {aiUsage && <span className="admin-tab-count">{aiUsage.requests}</span>}
+          </button>
+          <button
+            className={`admin-tab ${tab === "tournament" ? "active" : ""}`}
+            onClick={() => setTab("tournament")}
+          >
+            <IconPlay size={15} /> Tournament Control
           </button>
         </div>
 
@@ -906,6 +923,9 @@ export default function Admin({ onExit }) {
             </div>
           </div>
         )}
+
+        {/* TAB 4: TOURNAMENT */}
+        {tab === "tournament" && <AdminTournament notify={notify} />}
       </main>
 
 

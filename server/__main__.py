@@ -11,4 +11,4 @@ args = ap.parse_args()
 
 print(f"Admin key: {ADMIN_KEY}  (from MCW_ADMIN_KEY or {ADMIN_KEY_FILE})")
 print(f"API docs:  http://localhost:{args.port}/docs")
-uvicorn.run("server.app:app", host=args.host, port=args.port, workers=1)
+uvicorn.run("server.app:app", host=args.host, port=args.port, reload=True)

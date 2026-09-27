@@ -5,6 +5,7 @@ import { startEngine } from "./local/engine";
 import Register from "./components/Register";
 import Workspace from "./components/Workspace";
 import Admin from "./components/Admin";
+import BigScreen from "./components/tournament/BigScreen";
 
 const checkIsAdmin = () =>
   typeof window !== "undefined" &&
@@ -12,8 +13,15 @@ const checkIsAdmin = () =>
     window.location.hash.startsWith("#admin") ||
     new URLSearchParams(window.location.search).has("admin"));
 
+const checkIsScreen = () =>
+  typeof window !== "undefined" &&
+  (window.location.pathname.startsWith("/screen") ||
+    window.location.hash.startsWith("#screen") ||
+    new URLSearchParams(window.location.search).has("screen"));
+
 export default function App() {
   const [isAdmin, setIsAdmin] = useState(checkIsAdmin);
+  const [isScreen, setIsScreen] = useState(checkIsScreen);
   const [token, setTok] = useState(getToken());
   const [me, setMe] = useState(null);
   const [loadError, setLoadError] = useState("");
@@ -21,7 +29,10 @@ export default function App() {
   const { status, offline, refresh } = useEventStatus();
 
   useEffect(() => {
-    const onNav = () => setIsAdmin(checkIsAdmin());
+    const onNav = () => {
+      setIsAdmin(checkIsAdmin());
+      setIsScreen(checkIsScreen());
+    };
     window.addEventListener("hashchange", onNav);
     window.addEventListener("popstate", onNav);
     return () => {
@@ -56,6 +67,21 @@ export default function App() {
   }, [token]);
 
   useEffect(refreshMe, [refreshMe]);
+
+  if (isScreen) {
+    return (
+      <BigScreen
+        onExit={() => {
+          if (window.location.pathname.startsWith("/screen")) {
+            window.location.href = "/";
+          } else {
+            window.location.hash = "";
+            setIsScreen(false);
+          }
+        }}
+      />
+    );
+  }
 
   if (isAdmin) {
     return (

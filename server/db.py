@@ -44,6 +44,63 @@ CREATE TABLE IF NOT EXISTS event (
     key    TEXT PRIMARY KEY,
     value  TEXT
 );
+CREATE TABLE IF NOT EXISTS tournament_state (
+    id                  INTEGER PRIMARY KEY CHECK (id = 1),
+    stage               TEXT NOT NULL DEFAULT 'ready_room',
+    round_number        INTEGER NOT NULL DEFAULT 0,
+    started_at          REAL,
+    paused              INTEGER NOT NULL DEFAULT 0,
+    paused_at           REAL,
+    accumulated_pause   REAL NOT NULL DEFAULT 0,
+    highlight_match_id  INTEGER,
+    turn_step           INTEGER DEFAULT -1,
+    updated_at          REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS tournament_rounds (
+    id                  INTEGER PRIMARY KEY,
+    stage               TEXT NOT NULL,
+    round_number        INTEGER NOT NULL,
+    status              TEXT NOT NULL,
+    started_at          REAL NOT NULL,
+    completed_at        REAL,
+    snapshot_json       TEXT
+);
+CREATE INDEX IF NOT EXISTS tr_stage_round ON tournament_rounds(stage, round_number);
+CREATE TABLE IF NOT EXISTS tournament_matches (
+    id                  INTEGER PRIMARY KEY,
+    round_id            INTEGER NOT NULL REFERENCES tournament_rounds(id),
+    stage               TEXT NOT NULL,
+    match_index         INTEGER NOT NULL,
+    p1_id               INTEGER NOT NULL,
+    p2_id               INTEGER,
+    is_bye              INTEGER NOT NULL DEFAULT 0,
+    p1_score            INTEGER NOT NULL DEFAULT 0,
+    p2_score            INTEGER NOT NULL DEFAULT 0,
+    winner_id           INTEGER,
+    draw_reason         TEXT,
+    replay_json         TEXT NOT NULL,
+    highlight_score     REAL NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS tm_round ON tournament_matches(round_id);
+CREATE INDEX IF NOT EXISTS tm_stage ON tournament_matches(stage);
+CREATE TABLE IF NOT EXISTS tournament_standings (
+    id                  INTEGER PRIMARY KEY,
+    round_number        INTEGER NOT NULL,
+    participant_id      INTEGER NOT NULL REFERENCES participants(id),
+    match_wins          INTEGER NOT NULL,
+    match_losses        INTEGER NOT NULL,
+    game_wins           INTEGER NOT NULL,
+    game_losses         INTEGER NOT NULL,
+    buchholz            REAL NOT NULL,
+    sonneborn           REAL NOT NULL,
+    damage_dealt        INTEGER NOT NULL,
+    damage_taken        INTEGER NOT NULL,
+    fumbles             INTEGER NOT NULL,
+    knockout_turns      INTEGER NOT NULL,
+    tier                INTEGER NOT NULL DEFAULT 3,
+    rank                INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS ts_round_part ON tournament_standings(round_number, participant_id);
 """
 
 _init_lock = threading.Lock()

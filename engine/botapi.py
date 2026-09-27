@@ -18,6 +18,8 @@ import builtins
 import inspect
 import io
 import random
+import sys
+import time
 import traceback
 import types
 
@@ -156,10 +158,11 @@ class BotRunner:
     safe=True adds the static check, banned builtins and the import allowlist.
     """
 
-    def __init__(self, source: str, filename: str = "bot.py", print_limit: int = 500, safe: bool = False):
+    def __init__(self, source: str, filename: str = "bot.py", print_limit: int = 500, safe: bool = False, timeout_ms: int = 100):
         self.filename = filename
         self.print_limit = print_limit
         self.safe = safe
+        self.timeout_ms = timeout_ms
         self.memory = {}
         self.play = None
         self.load_error = None
@@ -219,9 +222,27 @@ class BotRunner:
         args = (View("me", me), View("opp", opp), turn, self.memory)[: self.nargs]
         self._out = _Capped(self.print_limit)
         move, error = None, None
+
+        old_trace = None
+        if self.timeout_ms and self.timeout_ms > 0:
+            deadline = time.perf_counter() + (self.timeout_ms / 1000.0)
+
+            def _trace(frame, event, arg):
+                if time.perf_counter() > deadline:
+                    raise TimeoutError(f"Move exceeded {self.timeout_ms}ms limit")
+                return _trace
+
+            old_trace = sys.gettrace()
+            sys.settrace(_trace)
+
         try:
-            move = self.play(*args)
+            try:
+                move = self.play(*args)
+            finally:
+                if self.timeout_ms and self.timeout_ms > 0:
+                    sys.settrace(old_trace)
         except Exception as e:
             error = _explain(e, self.filename)
+
         return {"move": move if isinstance(move, (str, type(None))) else repr(move),
                 "output": self._out.getvalue(), "error": error}

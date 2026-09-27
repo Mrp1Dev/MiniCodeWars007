@@ -24,7 +24,7 @@ def main():
     for line in proto_in:
         msg = json.loads(line)
         if msg["cmd"] == "load":
-            runner = BotRunner(msg["source"], msg["filename"], msg["print_limit"], safe=True)
+            runner = BotRunner(msg["source"], msg["filename"], msg["print_limit"], safe=True, timeout_ms=0)
             reply = {"error": runner.load_error, "output": runner.load_output}
         else:
             reply = runner.act(msg["me"], msg["opp"], msg["turn"], msg["seed"])

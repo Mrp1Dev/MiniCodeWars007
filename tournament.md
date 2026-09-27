@@ -19,7 +19,7 @@ The tournament runs in two distinct acts: **Swiss Stage** into **Single Eliminat
 
 ### Act 1: The Swiss Stage (All Participants)
 * **Structure**: **6 Swiss rounds**. Everyone plays every round—nobody is eliminated early.
-* **Match Format**: Every 1v1 matchup is **Best of 5 (Bo5)** (first to 3 wins). Matches produce a strict Win or Loss (no match-level draws).
+* **Match Format**: Every 1v1 matchup is **Best of 5 (Bo5)** (first to 3 wins, strictly capped at regulation 5 games).
 * **Execution**: **Parallel**. All matchups in a round run simultaneously so each round takes roughly 40–50 seconds of match time.
 * **Pairing & Edge Cases**:
   * Participants are paired within their score bracket (e.g. 2-0 vs 2-0), strictly avoiding rematches from earlier rounds.
@@ -28,16 +28,18 @@ The tournament runs in two distinct acts: **Swiss Stage** into **Single Eliminat
   * If the participant count is odd, one participant receives a **Bye** (automatic 3-0 win).
   * No participant receives more than one Bye during Swiss.
   * During their Bye round, the student's screen **automatically mirrors the Big Screen** for that round's duration so they remain engaged.
-* **Draw Handling within Matches**:
-  * If a single game ends in an engine draw (`winner = None` with identical HP, ammo, and damage), no win is awarded; the match continues to the next game.
-  * **Infinite Mirror Cap**: To prevent infinite loops between deterministic identical bots, Bo5 is capped at a maximum of **6 games** (Bo7 capped at **8 games**).
-  * If the game cap is reached without a 3-win victor, the tie is broken deterministically by gameplay stats:
+* **Draw Handling (Strict Uniform Pacing)**:
+  * Matches are strictly capped at regulation length (**max 5 games for Bo5**, **max 7 games for Bo7**)—no extra or overtime games are ever played, ensuring round timing remains strictly uniform and uninterrupted across the entire auditorium.
+  * **Individual Game Draws**: If an engine game draws (`winner = None` with identical HP, ammo, and damage), **no win is awarded to either bot** toward the series; the match continues to the next game.
+  * **In Swiss Stage**: If a match ends tied after 5 regulation games (e.g. `2-2`, `1-1`, or `0-0`), the tie is broken immediately using the **10-tier Tournament Merit History** so far (Match Record -> Buchholz -> Sonneborn-Berger -> Net Game Differential -> Total Game Wins -> Head-to-Head -> Total Damage -> Remaining HP -> Fewest Fumbles -> Fastest Knockout Speed -> Seed Hash), awarding the deciding match point so standings remain decisive.
+  * **In Single Elimination**: If a match ends tied after regulation games (e.g. `2-2`, `1-1`, or `0-0`), the advancing bot is decided immediately by:
     1. Most game wins in that match
     2. Total cumulative damage dealt across that match
-    3. Total cumulative remaining HP
+    3. Total cumulative remaining HP across that match
     4. Fewest fumbles in that match
-    5. Highest offensive move ratio (`SHOOT` + `SNIPE` vs `SHIELD` + `RELOAD`)
-    6. Deterministic Seed Hash (Absolute final fallback)
+    5. The **10-tier Tournament Merit History** (Tournament Match Record, Buchholz, Sonneborn-Berger, Net Game Differential, Total Game Wins, Head-to-Head, Total Damage, Fewest Fumbles, Knockout Speed)
+    6. Higher Swiss Stage final seeding
+    7. Deterministic SHA-256 Seed Hash (absolute final fallback)
 * **The Cut (Top 32)**:
   * After 6 rounds, the field cuts to the **Top 32**.
   * Standings ties (especially critical for the 4-2 cutoff bubble) are resolved through a strictly **merit-based tiebreaker chain** with an absolute deterministic fallback:
@@ -54,12 +56,12 @@ The tournament runs in two distinct acts: **Swiss Stage** into **Single Eliminat
 
 ### Act 2: Single Elimination (Top 32 to Champion)
 * **Round of 32 & Round of 16**:
-  * **Parallel execution**, Best of 5.
+  * **Parallel execution**, Best of 5 (strictly max 5 games).
   * Fast-paced, trimming the contenders down to the final 8.
 * **Round of 8 (Quarter-Finals)**:
-  * **Sequential execution** (1 match at a time on the main screen). Best of 5.
+  * **Sequential execution** (1 match at a time on the main screen). Best of 5 (strictly max 5 games).
 * **Round of 4 (Semi-Finals) & Grand Finale**:
-  * **Sequential execution**, upgraded to **Best of 7** (first to 4 wins).
+  * **Sequential execution**, upgraded to **Best of 7** (first to 4 wins, strictly max 7 games).
   * **Grand Finale Feature**: The host must have the ability to step through games **turn-by-turn** to build maximum stadium suspense.
 
 ---
