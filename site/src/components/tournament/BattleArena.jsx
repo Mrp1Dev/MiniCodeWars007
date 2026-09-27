@@ -7,6 +7,9 @@ export default function BattleArena({
   match,
   status,
   revealNames = false,
+  myParticipantId = null,
+  isMirroring = false,
+  mirrorTag = null,
 }) {
   const {
     started_at: startedAt,
@@ -70,6 +73,9 @@ export default function BattleArena({
   const p2Won = match.winner_id ? match.winner_id === match.p2_id : (p2Score > p1Score && isMatchComplete);
   const winnerName = p1Won ? match.p1_name : (p2Won ? match.p2_name : null);
 
+  const isP1Me = myParticipantId != null && match && Number(match.p1_id) === Number(myParticipantId);
+  const isP2Me = myParticipantId != null && match && Number(match.p2_id) === Number(myParticipantId);
+
   // Action event description
   const events = currentTurn?.events || [];
   let eventText = "";
@@ -105,14 +111,29 @@ export default function BattleArena({
       {/* Top Banner */}
       <div className="arena-top">
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          {isMirroring && (
+            <span className="mirror-indicator-banner">
+              <span className="live-dot" /> {mirrorTag || "MIRRORING CENTER SCREEN"}
+            </span>
+          )}
           <span className="arena-badge">
             {match.is_bye
               ? "AUTOMATIC ADVANCE (BYE)"
               : `GAME ${Math.min(totalGames, gameIndex + 1)} OF BEST OF ${maxPossibleGames}`}
           </span>
-          <span className="marquee-tag" title="Excitement rating calculated from turns, damage & lead changes">
-            ★ FEATURED MARQUEE DUEL
-          </span>
+          {isMirroring ? (
+            <span className="marquee-tag marquee-mirror">
+              CENTER SCREEN BROADCAST
+            </span>
+          ) : (isP1Me || isP2Me) ? (
+            <span className="marquee-tag marquee-you">
+              ★ YOUR LIVE DUEL
+            </span>
+          ) : (
+            <span className="marquee-tag" title="Excitement rating calculated from turns, damage & lead changes">
+              ★ FEATURED MARQUEE DUEL
+            </span>
+          )}
         </div>
 
         {!match.is_bye && (
@@ -146,7 +167,7 @@ export default function BattleArena({
       {/* Main Duel Stage */}
       <div className="arena-stage">
         {/* Player 1 Panel */}
-        <div className={`combatant-panel p1 ${isMatchComplete ? (p1Won ? "combatant-winner" : "combatant-loser") : ""}`}>
+        <div className={`combatant-panel p1 ${isP1Me ? "is-user-bot" : ""} ${isMatchComplete ? (p1Won ? "combatant-winner" : "combatant-loser") : ""}`}>
           <div className="combatant-header-line">
             <span className="combatant-side-tag">AGENT 001</span>
             {isMatchComplete && (
@@ -160,7 +181,10 @@ export default function BattleArena({
             {revealNames && match.p1_real_name && (
               <span className="combatant-real-name">{match.p1_real_name}</span>
             )}
-            <span className="combatant-bot-name">{match.p1_name}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span className="combatant-bot-name">{match.p1_name}</span>
+              {isP1Me && <span className="you-pill">YOU</span>}
+            </div>
           </div>
 
           <div className="meter-row">
@@ -256,7 +280,7 @@ export default function BattleArena({
         </div>
 
         {/* Player 2 Panel */}
-        <div className={`combatant-panel p2 ${isMatchComplete ? (p2Won ? "combatant-winner" : "combatant-loser") : ""}`}>
+        <div className={`combatant-panel p2 ${isP2Me ? "is-user-bot" : ""} ${isMatchComplete ? (p2Won ? "combatant-winner" : "combatant-loser") : ""}`}>
           <div className="combatant-header-line">
             {isMatchComplete && (
               <span className={`status-badge-pill ${p2Won ? "pill-winner" : "pill-loser"}`}>
@@ -270,7 +294,10 @@ export default function BattleArena({
             {revealNames && match.p2_real_name && (
               <span className="combatant-real-name">{match.p2_real_name}</span>
             )}
-            <span className="combatant-bot-name">{match.p2_name}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
+              {isP2Me && <span className="you-pill">YOU</span>}
+              <span className="combatant-bot-name">{match.p2_name}</span>
+            </div>
           </div>
 
           <div className="meter-row">

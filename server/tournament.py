@@ -19,7 +19,7 @@ import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from engine import BotRunner, load_config, run_match
 from engine.rules import FUMBLE
@@ -84,7 +84,7 @@ MATCH_WORKERS = max(2, settings.MAX_PARALLEL_MATCHES)
 _cache_lock = threading.RLock()
 _GEN = 0
 _SGEN = 0
-_CACHE: Dict[str, Any] = {"status": None, "screen": None, "screen_body": None, "standings": {}}
+_CACHE: Dict[str, Any] = {"status": None, "screen": None, "screen_body": None, "standings": {}, "participant_matches": None}
 
 # Only one stage computation at a time (double clicks, two admins).
 _advance_lock = threading.Lock()
@@ -1345,6 +1345,7 @@ def invalidate_cache(standings: bool = False):
         _CACHE["status"] = None
         _CACHE["screen"] = None
         _CACHE["screen_body"] = None
+        _CACHE["participant_matches"] = None
         if standings:
             _SGEN += 1
             _CACHE["standings"] = {}
@@ -1574,3 +1575,213 @@ def get_screen_json() -> str:
     """get_screen_data() as JSON, reusing the cached encoding (only the status is re-encoded)."""
     _, body = _cached_screen()
     return '{"status":' + json.dumps(get_tournament_status(), separators=(",", ":")) + "," + body + "}"
+
+
+def _build_participant_cache():
+    """Builds and caches personalized participant tournament payloads for all participants in RAM."""
+    screen_data = get_screen_data()
+    status = get_tournament_status()
+    stage = status["stage"]
+    rnd = status["round_number"]
+
+    with db.connect() as c:
+        p_rows = c.execute("SELECT id, roll, name, bot_name FROM participants").fetchall()
+    registered_pids = {r["id"] for r in p_rows}
+
+    entries = {e.id: e for e in get_all_tournament_entries()}
+    all_pids = registered_pids | set(entries.keys())
+
+    highlight = screen_data.get("highlight")
+    tiers = screen_data.get("tiers")
+    bracket = screen_data.get("bracket")
+    total_p = screen_data.get("total_participants", len(entries))
+
+    standings_list = get_latest_standings()
+    standings_map = {s["participant_id"]: s for s in standings_list}
+
+    cache_map: Dict[int, Dict[str, Any]] = {}
+
+    def format_standing(s_dict):
+        if not s_dict:
+            return None
+        return {
+            "rank": s_dict.get("rank", 0),
+            "match_wins": s_dict.get("match_wins", 0),
+            "match_losses": s_dict.get("match_losses", 0),
+            "game_wins": s_dict.get("game_wins", 0),
+            "game_losses": s_dict.get("game_losses", 0),
+            "damage_dealt": s_dict.get("damage_dealt", 0),
+            "fumbles": s_dict.get("fumbles", 0),
+            "tier": s_dict.get("tier", 3),
+            "had_bye": bool(s_dict.get("had_bye", False)),
+            "qualified_top32": bool(s_dict.get("rank", 999) <= TOP_CUT_COUNT),
+        }
+
+    if stage == STAGE_READY:
+        for pid in all_pids:
+            cache_map[pid] = {
+                "role": "ready",
+                "match": None,
+                "is_mirroring": False,
+                "my_standing": None,
+                "tiers": tiers,
+                "bracket": bracket,
+                "total_participants": total_p,
+            }
+
+    elif stage == STAGE_CUT_CEREMONY:
+        for pid in all_pids:
+            s = standings_map.get(pid)
+            cache_map[pid] = {
+                "role": "cut",
+                "match": None,
+                "is_mirroring": False,
+                "my_standing": format_standing(s),
+                "tiers": tiers,
+                "bracket": bracket,
+                "total_participants": total_p,
+            }
+
+    elif stage == STAGE_CHAMPION:
+        for pid in all_pids:
+            s = standings_map.get(pid)
+            cache_map[pid] = {
+                "role": "champion",
+                "match": highlight,
+                "is_mirroring": True,
+                "my_standing": format_standing(s),
+                "tiers": tiers,
+                "bracket": bracket,
+                "total_participants": total_p,
+            }
+
+    elif status.get("is_sequential"):
+        for pid in all_pids:
+            s = standings_map.get(pid)
+            cache_map[pid] = {
+                "role": "spectating",
+                "match": highlight,
+                "is_mirroring": True,
+                "my_standing": format_standing(s),
+                "tiers": tiers,
+                "bracket": bracket,
+                "total_participants": total_p,
+            }
+
+    else:
+        # Swiss (swiss_1..6) or parallel Elimination (ro32, ro16)
+        is_elim = stage in (STAGE_RO32, STAGE_RO16)
+        round_matches = []
+        with db.connect() as c:
+            cur_round = c.execute("""
+                SELECT id FROM tournament_rounds
+                WHERE stage = ?
+                ORDER BY id DESC LIMIT 1
+            """, (stage,)).fetchone()
+            if cur_round:
+                rows = c.execute("""
+                    SELECT m.*, p1.bot_name as p1_bot, p1.name as p1_real,
+                                p2.bot_name as p2_bot, p2.name as p2_real
+                    FROM tournament_matches m
+                    JOIN participants p1 ON p1.id = m.p1_id
+                    LEFT JOIN participants p2 ON p2.id = m.p2_id
+                    WHERE m.round_id = ?
+                """, (cur_round["id"],)).fetchall()
+                round_matches = [dict(r) for r in rows]
+
+        match_by_pid: Dict[int, Dict[str, Any]] = {}
+        bye_pids: Set[int] = set()
+
+        reveal_names = bool(status.get("reveal_names", False))
+
+        for m in round_matches:
+            fmt_match = {
+                "match_id": m["id"],
+                "stage": m["stage"],
+                "is_bye": bool(m["is_bye"]),
+                "p1_id": m["p1_id"],
+                "p2_id": m["p2_id"],
+                "p1_name": m["p1_bot"] or m["p1_real"],
+                "p2_name": (m["p2_bot"] or m["p2_real"]) if m["p2_id"] else "BYE",
+                "p1_real_name": m["p1_real"] if reveal_names else "",
+                "p2_real_name": (m["p2_real"] if (reveal_names and m["p2_id"]) else ""),
+                "p1_score": m["p1_score"],
+                "p2_score": m["p2_score"],
+                "winner_id": m["winner_id"],
+                "draw_reason": m["draw_reason"],
+                "games": json.loads(m["replay_json"]) if m.get("replay_json") else []
+            }
+            if m["is_bye"]:
+                bye_pids.add(m["p1_id"])
+            else:
+                match_by_pid[m["p1_id"]] = fmt_match
+                if m["p2_id"]:
+                    match_by_pid[m["p2_id"]] = fmt_match
+
+        for pid in all_pids:
+            s = standings_map.get(pid)
+            if pid in match_by_pid:
+                role = "playing"
+                match_obj = match_by_pid[pid]
+                is_mirroring = False
+            elif pid in bye_pids:
+                role = "bye"
+                match_obj = highlight
+                is_mirroring = True
+            else:
+                role = "eliminated" if is_elim else "spectating"
+                match_obj = highlight
+                is_mirroring = True
+
+            cache_map[pid] = {
+                "role": role,
+                "match": match_obj,
+                "is_mirroring": is_mirroring,
+                "my_standing": format_standing(s),
+                "tiers": tiers,
+                "bracket": bracket,
+                "total_participants": total_p,
+            }
+
+    with _cache_lock:
+        _CACHE["participant_matches"] = cache_map
+
+
+def get_participant_data(participant_id: int) -> Dict[str, Any]:
+    """Ultra-fast, zero-DB participant view served from RAM for 400+ concurrent laptops."""
+    with _cache_lock:
+        cache_map = _CACHE.get("participant_matches")
+
+    if cache_map is None:
+        _build_participant_cache()
+        with _cache_lock:
+            cache_map = _CACHE.get("participant_matches")
+
+    latest_status = get_tournament_status()
+
+    if cache_map and participant_id in cache_map:
+        cached = dict(cache_map[participant_id])
+        cached["status"] = latest_status
+        return cached
+
+    # Stage-consistent fallback for spectators or unknown IDs
+    screen = get_screen_data()
+    stage = latest_status.get("stage", STAGE_READY)
+    fallback_role = "ready" if stage == STAGE_READY else (
+        "cut" if stage == STAGE_CUT_CEREMONY else (
+            "champion" if stage == STAGE_CHAMPION else "spectating"
+        )
+    )
+    fallback_match = None if stage in (STAGE_READY, STAGE_CUT_CEREMONY) else screen.get("highlight")
+    fallback_mirror = stage not in (STAGE_READY, STAGE_CUT_CEREMONY)
+
+    return {
+        "status": latest_status,
+        "role": fallback_role,
+        "match": fallback_match,
+        "is_mirroring": fallback_mirror,
+        "my_standing": None,
+        "tiers": screen.get("tiers"),
+        "bracket": screen.get("bracket"),
+        "total_participants": screen.get("total_participants", 0),
+    }

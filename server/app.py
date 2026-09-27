@@ -20,6 +20,7 @@ from typing import Literal, Optional
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
@@ -50,6 +51,7 @@ def _admin_key():
 ADMIN_KEY = _admin_key()
 
 app = FastAPI(title="MiniCodeWars 007", version="1")
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -525,6 +527,12 @@ from . import tournament
 def tournament_status():
     """Ultra-fast tournament status and clock offset, served from memory cache."""
     return tournament.get_tournament_status()
+
+
+@app.get("/api/tournament/my-match")
+def tournament_my_match(p=Depends(participant)):
+    """Personalized tournament view for a participant's laptop, served from memory cache."""
+    return tournament.get_participant_data(p["id"])
 
 
 @app.get("/api/tournament/screen")
