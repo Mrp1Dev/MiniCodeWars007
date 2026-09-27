@@ -224,7 +224,7 @@ class TestBody(BaseModel):
 
 
 class CleanBody(BaseModel):
-    pseudocode: str = Field(min_length=1, max_length=ai.MAX_PSEUDOCODE_CHARS)
+    pseudocode: str = Field(min_length=1, max_length=MAX_SOURCE_CHARS)
 
 
 class SubmitBody(BaseModel):
@@ -308,6 +308,35 @@ def engine_bundle():
 
 STARTER_CODE = (settings.ROOT / "starter" / "bot.py").read_text(encoding="utf-8")
 STARTER_COMMENTS = STARTER_CODE.split("def play", 1)[0].strip() if "def play" in STARTER_CODE else ""
+
+
+def strip_starter_comments(text: str) -> str:
+    if not text:
+        return ""
+    clean = text.replace("\r\n", "\n")
+    norm_starter = STARTER_COMMENTS.replace("\r\n", "\n").strip()
+    if norm_starter and norm_starter in clean:
+        return clean.replace(norm_starter, "").strip()
+    if "play() is called" in clean or "Write your bot" in clean:
+        play_idx = clean.find("def play")
+        if play_idx != -1:
+            before_play = clean[:play_idx]
+            if "play() is called" in before_play or "Write your bot" in before_play:
+                return clean[play_idx:].strip()
+        marker = "opp.history[-1]"
+        m_idx = clean.find(marker)
+        if m_idx != -1:
+            line_end = clean.find("\n", m_idx)
+            if line_end != -1:
+                return clean[line_end + 1:].strip()
+        lines = clean.split("\n")
+        i = 0
+        while i < len(lines) and (lines[i].strip().startswith("#") or not lines[i].strip()):
+            i += 1
+        header = "\n".join(lines[:i])
+        if "play() is called" in header or "Write your bot" in header:
+            return "\n".join(lines[i:]).strip()
+    return clean.strip()
 
 STARTER = {
     "code": STARTER_CODE,
@@ -423,12 +452,9 @@ async def clean(body: CleanBody, p=Depends(participant)):
         raise HTTPException(429, f"you've used all {settings.AI_MAX_PER_PARTICIPANT} AI cleanups; "
                                  "you can still edit the code yourself")
     # Strip starter comments before sending to the LLM (saves characters and prompt tokens)
-    pseudocode = body.pseudocode
-    if STARTER_COMMENTS:
-        if STARTER_COMMENTS in pseudocode:
-            pseudocode = pseudocode.replace(STARTER_COMMENTS, "").strip()
-        elif "play() is called" in pseudocode and "def play" in pseudocode:
-            pseudocode = pseudocode[pseudocode.find("def play"):].strip()
+    pseudocode = strip_starter_comments(body.pseudocode)
+    if len(pseudocode) > ai.MAX_PSEUDOCODE_CHARS:
+        raise HTTPException(400, f"pseudocode is too long: {len(pseudocode)} of {ai.MAX_PSEUDOCODE_CHARS} characters")
     if not pseudocode:
         pseudocode = "return RELOAD"
 
@@ -449,8 +475,10 @@ async def clean(body: CleanBody, p=Depends(participant)):
 
         # Attach starter comments back to the LLM's cleaned code
         if result.status == "ok" and result.code and STARTER_COMMENTS:
-            if "play() is called" not in result.code:
-                result.code = f"{STARTER_COMMENTS}\n\n{result.code.lstrip()}"
+            norm_code = result.code.replace("\r\n", "\n")
+            norm_starter = STARTER_COMMENTS.replace("\r\n", "\n").strip()
+            if not norm_code.startswith(norm_starter):
+                result.code = f"{norm_starter}\n\n{norm_code.lstrip()}"
 
         public = result.public()
         # Logged before the reservation is released, so the spend is never counted as free.

@@ -199,6 +199,29 @@ class Endpoint(unittest.TestCase):
         bots = self.c.get("/api/house-bots").json()
         self.assertTrue(bots and all(set(b) == {"name", "description", "code"} for b in bots))
 
+    def test_clean_strips_and_reattaches_starter_comments(self):
+        from server.app import STARTER_CODE, STARTER_COMMENTS, strip_starter_comments
+        # Test unit stripping
+        self.assertEqual(strip_starter_comments(STARTER_CODE), "def play(me, opp, turn, memory):\n    return RELOAD")
+        pseudo_with_comments = f"{STARTER_COMMENTS}\n\nevery turn reload"
+        self.assertEqual(strip_starter_comments(pseudo_with_comments), "every turn reload")
+
+        # Test endpoint
+        client = FakeClient(OK_ANSWER)
+        ai._client = client
+        r = self.post(pseudo_with_comments)
+        self.assertEqual(r.status_code, 200)
+        # Verify LLM received pseudocode WITHOUT template comments
+        llm_input = client.calls[0]["messages"][1]["content"]
+        self.assertNotIn("play() is called once every turn", llm_input)
+        self.assertIn("every turn reload", llm_input)
+        # Verify response code HAS the starter comments re-attached
+        body = r.json()
+        self.assertEqual(body["status"], "ok")
+        self.assertTrue(body["code"].startswith(STARTER_COMMENTS))
+        self.assertIn("def play", body["code"])
+
 
 if __name__ == "__main__":
     unittest.main()
+

@@ -27,6 +27,42 @@ const sameCode = (a, b) => a.replace(/\s+$/gm, "").trim() === b.replace(/\s+$/gm
 const clock = (ms) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const firstLine = (text) => (text.split("\n").find((l) => l.trim() && !l.trim().startsWith("#")) || text).trim();
 
+export function stripStarterComments(text, starterComments) {
+  if (!text) return "";
+  let clean = text.replace(/\r\n/g, "\n");
+  const normStarter = (starterComments || "").replace(/\r\n/g, "\n").trim();
+  if (normStarter && clean.includes(normStarter)) {
+    return clean.replace(normStarter, "").trim();
+  }
+  if (clean.includes("play() is called") || clean.includes("Write your bot")) {
+    const playIdx = clean.indexOf("def play");
+    if (playIdx !== -1) {
+      const beforePlay = clean.slice(0, playIdx);
+      if (beforePlay.includes("play() is called") || beforePlay.includes("Write your bot")) {
+        return clean.slice(playIdx).trim();
+      }
+    }
+    const marker = "opp.history[-1]";
+    const mIdx = clean.indexOf(marker);
+    if (mIdx !== -1) {
+      const lineEnd = clean.indexOf("\n", mIdx);
+      if (lineEnd !== -1) {
+        return clean.slice(lineEnd + 1).trim();
+      }
+    }
+    const lines = clean.split("\n");
+    let i = 0;
+    while (i < lines.length && (lines[i].trim().startsWith("#") || lines[i].trim() === "")) {
+      i++;
+    }
+    const header = lines.slice(0, i).join("\n");
+    if (header.includes("play() is called") || header.includes("Write your bot")) {
+      return lines.slice(i).join("\n").trim();
+    }
+  }
+  return clean.trim();
+}
+
 function loadDraft(roll) {
   try {
     const d = JSON.parse(storage.get(draftKey(roll)) || "null");
@@ -116,21 +152,16 @@ export default function Workspace({ me, status, offline, refreshStatus, refreshM
     return idx !== -1 ? starter.code.slice(0, idx).trim() : "";
   }, [starter]);
 
+  const strippedCode = useMemo(() => stripStarterComments(code, starterComments), [code, starterComments]);
+  const effectiveLength = strippedCode.length;
+
   // --- clean with AI ------------------------------------------------------------------------
   async function clean() {
     const text = editor.current.getDoc();
     if (!text.trim()) return toast("Write something first: your bot's rules, in Python or plain English.", "bad");
 
     // Don't send starter comments to the LLM (saves characters and prompt tokens)
-    let textToSend = text;
-    if (starterComments && textToSend.includes(starterComments)) {
-      textToSend = textToSend.replace(starterComments, "").trim();
-    } else if (textToSend.includes("play() is called") || textToSend.includes("Write your bot")) {
-      const idx = textToSend.indexOf("def play");
-      if (idx !== -1) {
-        textToSend = textToSend.slice(idx).trim();
-      }
-    }
+    const textToSend = stripStarterComments(text, starterComments);
 
     if (!textToSend.trim()) {
       return toast("Write your bot's rules in Python or plain English below the comments.", "bad");
@@ -150,8 +181,12 @@ export default function Workspace({ me, status, offline, refreshStatus, refreshM
       // Attach starter comments back to the LLM's response
       let finalCode = r.code || "";
       const commentsToAttach = starterComments || (starter && starter.code ? starter.code.split("def play")[0].trim() : "");
-      if (r.status === "ok" && commentsToAttach && !finalCode.includes("play() is called")) {
-        finalCode = `${commentsToAttach}\n\n${finalCode.trimStart()}`;
+      if (r.status === "ok" && commentsToAttach) {
+        const normFinal = finalCode.replace(/\r\n/g, "\n");
+        const normComments = commentsToAttach.replace(/\r\n/g, "\n").trim();
+        if (!normFinal.startsWith(normComments)) {
+          finalCode = `${normComments}\n\n${normFinal.trimStart()}`;
+        }
       }
 
       const same = r.status === "ok" && sameCode(finalCode, text);
@@ -374,7 +409,7 @@ export default function Workspace({ me, status, offline, refreshStatus, refreshM
               Syntax check
             </label>
             <button className={`btn btn-ai ${cleaning ? "is-busy" : ""}`} onClick={clean}
-              disabled={!canClean || cleaning || code.length > MAX_AI_CHARS}
+              disabled={!canClean || cleaning || effectiveLength > MAX_AI_CHARS}
               title={canClean ? "Turn plain English into Python, or fix small Python slips" : "The AI is closed in this phase"}>
               {cleaning ? <span className="spinner" /> : <IconSpark />}
               {cleaning ? "Cleaning" : "Clean with AI"}
@@ -417,8 +452,8 @@ export default function Workspace({ me, status, offline, refreshStatus, refreshM
             <SyntaxStatus on={syntaxCheck} problems={problems} code={code} onGotoLine={gotoLine} />
             <div className="grow" />
             {remaining !== null && remaining <= 10 && <span className="warn">{remaining} AI cleans left</span>}
-            <span className={code.length > MAX_AI_CHARS ? "warn" : ""} title="The AI reads up to 2000 characters">
-              {code.length} / {MAX_AI_CHARS}
+            <span className={effectiveLength > MAX_AI_CHARS ? "warn" : ""} title="The AI reads up to 2000 characters (starter comments excluded)">
+              {effectiveLength} / {MAX_AI_CHARS}
             </span>
             <span>Python</span>
           </div>
