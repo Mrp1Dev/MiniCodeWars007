@@ -136,6 +136,16 @@ class Server(unittest.TestCase):
         self.assertIn("engine/botapi.py", bundle["files"])
         self.assertEqual(bundle["config"]["game"]["start_hp"], 3)
 
+    def test_tournament_my_match(self):
+        auth = self.register(roll="25B9999", name="Tournament Tester")
+        r = self.c.get("/api/tournament/my-match", headers=auth)
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertIn("role", data)
+        self.assertIn("status", data)
+        self.assertIn("is_mirroring", data)
+        self.assertIn("total_participants", data)
+
 
 if __name__ == "__main__":
     unittest.main()

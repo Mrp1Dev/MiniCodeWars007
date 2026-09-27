@@ -17,7 +17,7 @@ const PHASES = {
   registration: { label: "Warm-up", note: "Coding hasn't started yet. Write and test all you like; submitting opens when coding starts." },
   coding: { label: "Live", note: "" },
   locked: { label: "Time's up", note: "Submissions are closed. You can still run practice matches." },
-  tournament: { label: "Tournament", note: "The tournament is on. Eyes on the big screen." },
+  tournament: { label: "Tournament", note: "The tournament is live! Follow your bot in the arena." },
 };
 const STATUS_LABEL = { ok: "Cleaned", same: "No changes", declined: "Needs changes", error: "AI error" };
 

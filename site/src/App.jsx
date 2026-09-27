@@ -6,6 +6,7 @@ import Register from "./components/Register";
 import Workspace from "./components/Workspace";
 import Admin from "./components/Admin";
 import BigScreen from "./components/tournament/BigScreen";
+import PlayerTournament from "./components/tournament/PlayerTournament";
 
 const checkIsAdmin = () =>
   typeof window !== "undefined" &&
@@ -19,9 +20,16 @@ const checkIsScreen = () =>
     window.location.hash.startsWith("#screen") ||
     new URLSearchParams(window.location.search).has("screen"));
 
+const checkIsTournament = () =>
+  typeof window !== "undefined" &&
+  (window.location.pathname.startsWith("/tournament") ||
+    window.location.hash.startsWith("#tournament") ||
+    new URLSearchParams(window.location.search).has("tournament"));
+
 export default function App() {
   const [isAdmin, setIsAdmin] = useState(checkIsAdmin);
   const [isScreen, setIsScreen] = useState(checkIsScreen);
+  const [isTournament, setIsTournament] = useState(checkIsTournament);
   const [token, setTok] = useState(getToken());
   const [me, setMe] = useState(null);
   const [loadError, setLoadError] = useState("");
@@ -32,6 +40,7 @@ export default function App() {
     const onNav = () => {
       setIsAdmin(checkIsAdmin());
       setIsScreen(checkIsScreen());
+      setIsTournament(checkIsTournament());
     };
     window.addEventListener("hashchange", onNav);
     window.addEventListener("popstate", onNav);
@@ -123,6 +132,16 @@ export default function App() {
           <><span className="spinner" /> Loading</>
         )}
       </div>
+    );
+  }
+
+  if ((status && status.phase === "tournament") || isTournament) {
+    return (
+      <PlayerTournament
+        me={me}
+        eventStatus={status}
+        onSignOut={signOut}
+      />
     );
   }
 

@@ -86,6 +86,22 @@ export default function AdminTournament({ notify }) {
     }
   };
 
+  const handleUndo = async () => {
+    if (!window.confirm(`Undo ${stage.toUpperCase()}? Its results are discarded and the previous stage is shown again. Advancing afterwards re-runs it.`)) {
+      return;
+    }
+    setAdvancing(true);
+    try {
+      const res = await adminApi("/api/admin/tournament/undo", { body: {} });
+      await loadData();
+      notify(`Undone. Back to ${res?.status?.stage?.toUpperCase() || "the previous stage"}.`, "info");
+    } catch (err) {
+      notify(err.message, "bad");
+    } finally {
+      setAdvancing(false);
+    }
+  };
+
   const handleTogglePause = async () => {
     setPausing(true);
     try {
@@ -233,6 +249,15 @@ export default function AdminTournament({ notify }) {
             </button>
           )}
 
+          <button
+            className="btn btn-quiet"
+            onClick={handleUndo}
+            disabled={advancing || stage === "ready_room"}
+            title="Discard the current stage's results and go back one stage"
+          >
+            ↶ Undo Last Stage
+          </button>
+
           <button className="btn btn-quiet" onClick={handleStart} title="Reset tournament to initial Ready Room state">
             Reset to Ready Room
           </button>
@@ -290,11 +315,11 @@ export default function AdminTournament({ notify }) {
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
             <div>
               <span style={{ fontWeight: 700, fontSize: "16px", color: "var(--gold)" }}>
-                {data.highlight.p1_name} ({data.highlight.p1_real_name})
+                {data.highlight.p1_name}{data.highlight.p1_real_name ? ` (${data.highlight.p1_real_name})` : ""}
               </span>
               <span style={{ margin: "0 10px", color: "var(--muted)" }}>VS</span>
               <span style={{ fontWeight: 700, fontSize: "16px", color: "var(--cyan, #00e5ff)" }}>
-                {data.highlight.p2_name} ({data.highlight.p2_real_name})
+                {data.highlight.p2_name}{data.highlight.p2_real_name ? ` (${data.highlight.p2_real_name})` : ""}
               </span>
             </div>
             <span className="admin-badge badge-ok">

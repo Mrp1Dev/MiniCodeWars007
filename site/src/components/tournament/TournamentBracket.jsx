@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 const STAGE_ORDER = [
   "ro32",
@@ -30,13 +30,25 @@ export default function TournamentBracket({
     started_at: startedAt = null,
     server_time: serverTime = null,
     accumulated_pause: accumulatedPause = 0,
+    base_accumulated_pause: baseAccumulatedPause = 0,
+    paused_at: pausedAt = null,
     paused = false,
+    turn_step: turnStep = -1,
   } = status || {};
 
-  const clockOffset = serverTime ? serverTime - Date.now() / 1000 : 0;
-  const elapsedMs = startedAt
-    ? Math.max(0, (now / 1000 + clockOffset - startedAt - accumulatedPause) * 1000)
-    : 0;
+  // Measured once per poll: recomputing it on every tick would freeze the clock between polls.
+  const clockOffsetRef = useRef(serverTime ? serverTime - Date.now() / 1000 : 0);
+  useEffect(() => {
+    if (serverTime) clockOffsetRef.current = serverTime - Date.now() / 1000;
+  }, [serverTime]);
+
+  let elapsedMs = 0;
+  if (startedAt) {
+    const playedSec = paused && pausedAt
+      ? pausedAt - startedAt - baseAccumulatedPause // frozen exactly where the pause began
+      : now / 1000 + clockOffsetRef.current - startedAt - accumulatedPause;
+    elapsedMs = Math.max(0, playedSec * 1000);
+  }
 
   const ro32 = Array.isArray(bracket) ? bracket.slice(0, 16) : (bracket.ro32 || []);
   const ro16 = bracket.ro16 || [];
@@ -123,6 +135,10 @@ export default function TournamentBracket({
       p2Score = m?.score?.[1] ?? "-";
       p1Won = isCompleted && m?.winner_id === p1?.participant_id;
       p2Won = isCompleted && m?.winner_id === p2?.participant_id;
+    } else if (isCurrentRound && turnStep >= 0 && roundStage !== "ro32" && roundStage !== "ro16") {
+      // The host is stepping this match turn by turn; the arena shows the score, the bracket waits.
+      p1Score = "·";
+      p2Score = "·";
     } else if (isCurrentRound) {
       // Actively playing! Calculate live progressive score from timeline without spoilers
       if (m?.timeline && m.timeline.length > 0) {
@@ -168,7 +184,7 @@ export default function TournamentBracket({
 
     // Detect if match regulation ended tied and winner was determined via tiebreaker
     let tbInfo = null;
-    if (isCompleted && p1Score === p2Score && typeof p1Score === "number" && p1Score > 0) {
+    if (isCompleted && p1Score === p2Score && m?.draw_reason) {
       tbInfo = formatTiebreak(m?.draw_reason);
     }
 
@@ -191,7 +207,7 @@ export default function TournamentBracket({
           p2Score,
           p2Won,
           p1Won,
-          defaultP2,
+          m?.is_bye && isCompleted ? "BYE" : defaultP2,
           p2Won && tbInfo ? tbInfo.tag : null,
           p2Won && tbInfo ? tbInfo.desc : null
         )}
