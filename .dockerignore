@@ -1,0 +1,12 @@
+.git
+.env
+.venv
+data
+web
+db.sqlite3
+**/__pycache__
+**/*.pyc
+site/node_modules
+site/public/pyodide
+tests
+docs
