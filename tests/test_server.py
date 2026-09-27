@@ -134,7 +134,7 @@ class Server(unittest.TestCase):
         self.assertIn("SNIPE", self.c.get("/api/rules").json()["moves"])
         bundle = self.c.get("/api/engine-bundle").json()
         self.assertIn("engine/botapi.py", bundle["files"])
-        self.assertEqual(bundle["config"]["game"]["start_hp"], 3)
+        self.assertEqual(bundle["config"]["game"]["start_hp"], 5)
 
     def test_tournament_my_match(self):
         auth = self.register(roll="25B9999", name="Tournament Tester")

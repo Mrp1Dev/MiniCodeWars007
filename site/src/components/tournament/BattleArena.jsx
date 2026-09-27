@@ -21,6 +21,13 @@ export default function BattleArena({
     game_pause_ms: gamePauseMs,
   } = status || {};
 
+  const stage = match?.stage || status?.stage || "";
+  const startHp = match?.start_hp ||
+    match?.games?.[0]?.start_hp ||
+    match?.games?.[0]?.config?.game?.start_hp ||
+    status?.start_hp ||
+    (stage === "finals" ? 8 : (stage.startsWith("ro4") ? 7 : 5));
+
   // Hooks must run on every render, so the playback clock starts before the "no match" early return.
   const playback = useDeterministicPlayback({
     startedAt,
@@ -32,6 +39,7 @@ export default function BattleArena({
     matchId: match?.match_id ?? null,
     turnMs: turnMs || 750,
     gamePauseMs: gamePauseMs || 2500,
+    startHp,
   });
 
   if (!match) {
@@ -84,7 +92,7 @@ export default function BattleArena({
       const reasonText = match.draw_reason?.startsWith("tiebreak_")
         ? ` (Tiebreak: ${match.draw_reason.replace("tiebreak_", "").replace(/_/g, " ")})`
         : "";
-      eventText = `🏆 Match complete! ${winnerName} claims victory (${p1Won ? p1Score : p2Score}-${p1Won ? p2Score : p1Score})${reasonText}.`;
+      eventText = `🏆 Match complete! ${winnerName} claims victory${reasonText}.`;
     }
   } else if (events.length > 0) {
     const hits = events.filter((e) => e.type === "hit");
@@ -119,7 +127,11 @@ export default function BattleArena({
           <span className="arena-badge">
             {match.is_bye
               ? "AUTOMATIC ADVANCE (BYE)"
-              : `GAME ${Math.min(totalGames, gameIndex + 1)} OF BEST OF ${maxPossibleGames}`}
+              : stage === "finals"
+              ? `GRAND FINALE · 1V1 DUEL (${startHp} HP BOSS FIGHT)`
+              : stage.startsWith("ro4")
+              ? `SEMI-FINALS · 1V1 DUEL (${startHp} HP ENDURANCE)`
+              : `1V1 MATCH (${startHp} HP)`}
           </span>
           {isMirroring ? (
             <span className="marquee-tag marquee-mirror">
@@ -138,28 +150,12 @@ export default function BattleArena({
 
         {!match.is_bye && (
           <div className="series-tracker">
-            <span style={{ fontSize: "11px", letterSpacing: "0.15em", color: "var(--t-muted)" }}>SERIES:</span>
-            <div className="series-pips">
-              {Array.from({ length: winsRequired }).map((_, i) => (
-                <div
-                  key={`p1-pip-${i}`}
-                  className={`series-pip ${i < p1Score ? "won-p1" : ""}`}
-                  title={`${match.p1_name} Win`}
-                />
-              ))}
-            </div>
-            <span style={{ fontWeight: 800, color: "#fff", fontSize: "15px", fontFamily: "var(--mono)" }}>
-              {p1Score} - {p2Score}
+            <span style={{ fontSize: "11px", letterSpacing: "0.15em", color: "var(--t-muted)" }}>
+              {isMatchComplete ? "DECISION:" : "MATCH STATUS:"}
             </span>
-            <div className="series-pips">
-              {Array.from({ length: winsRequired }).map((_, i) => (
-                <div
-                  key={`p2-pip-${i}`}
-                  className={`series-pip ${i < p2Score ? "won-p2" : ""}`}
-                  title={`${match.p2_name} Win`}
-                />
-              ))}
-            </div>
+            <span style={{ fontWeight: 800, color: isMatchComplete ? "var(--t-gold-bright)" : "#fff", fontSize: "14px", fontFamily: "var(--mono)" }}>
+              {isMatchComplete ? (p1Won ? `${match.p1_name} WINS` : (p2Won ? `${match.p2_name} WINS` : "DRAW")) : (currentTurn ? `TURN ${currentTurn.turn}` : "INITIALIZING")}
+            </span>
           </div>
         )}
       </div>
@@ -191,11 +187,11 @@ export default function BattleArena({
             <div className="meter-label">
               <span>Armor Integrity</span>
               <span className={p1Hp <= 0 ? "hp-danger" : ""}>
-                {Math.max(0, p1Hp)} / 3 HP {p1Hp <= 0 ? "(KNOCKED OUT)" : ""}
+                {Math.max(0, p1Hp)} / {startHp} HP {p1Hp <= 0 ? "(KNOCKED OUT)" : ""}
               </span>
             </div>
             <div className="hp-bar-segments">
-              {[0, 1, 2].map((i) => (
+              {Array.from({ length: startHp }).map((_, i) => (
                 <div key={i} className={`hp-segment ${i < p1Hp ? "active" : ""}`} />
               ))}
             </div>
@@ -303,12 +299,12 @@ export default function BattleArena({
           <div className="meter-row">
             <div className="meter-label">
               <span className={p2Hp <= 0 ? "hp-danger" : ""}>
-                {p2Hp <= 0 ? "(KNOCKED OUT) " : ""}{Math.max(0, p2Hp)} / 3 HP
+                {p2Hp <= 0 ? "(KNOCKED OUT) " : ""}{Math.max(0, p2Hp)} / {startHp} HP
               </span>
               <span>Armor Integrity</span>
             </div>
             <div className="hp-bar-segments">
-              {[0, 1, 2].map((i) => (
+              {Array.from({ length: startHp }).map((_, i) => (
                 <div key={i} className={`hp-segment ${i < p2Hp ? "active" : ""}`} />
               ))}
             </div>

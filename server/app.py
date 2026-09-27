@@ -564,6 +564,7 @@ def tournament_match(match_id: int):
         return {
             "match_id": row["id"],
             "stage": row["stage"],
+            "start_hp": tournament.get_stage_cfg(row["stage"]).start_hp,
             "is_bye": bool(row["is_bye"]),
             "p1_id": row["p1_id"],
             "p2_id": row["p2_id"],

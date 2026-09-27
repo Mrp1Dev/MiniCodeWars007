@@ -128,21 +128,22 @@ export default function AdminTournament({ notify }) {
   };
 
   const getNextActionLabel = () => {
-    if (stage === "ready_room") return "Launch Swiss Round 1 (Parallel Bo5)";
+    const totalSwiss = status?.swiss_rounds || 8;
+    if (stage === "ready_room") return "Launch Swiss Round 1 (Parallel 1v1)";
     if (stage.startsWith("swiss_")) {
       const rnd = parseInt(stage.replace("swiss_", ""), 10);
-      if (rnd < 6) return `Launch Swiss Round ${rnd + 1} (Parallel Bo5)`;
+      if (rnd < totalSwiss) return `Launch Swiss Round ${rnd + 1} (Parallel 1v1)`;
       return "Conclude Swiss Stage → Trigger Top 32 Cut";
     }
-    if (stage === "cut_ceremony") return "Launch Elimination: Round of 32";
-    if (stage === "ro32") return "Launch Elimination: Round of 16";
-    if (stage === "ro16") return "Launch Quarter-Finals (Match 1 of 4)";
-    if (stage === "ro8_m1") return "Launch Quarter-Finals (Match 2 of 4)";
-    if (stage === "ro8_m2") return "Launch Quarter-Finals (Match 3 of 4)";
-    if (stage === "ro8_m3") return "Launch Quarter-Finals (Match 4 of 4)";
-    if (stage === "ro8_m4") return "Launch Semi-Finals (Match 1 of 2 - Bo7)";
-    if (stage === "ro4_m1") return "Launch Semi-Finals (Match 2 of 2 - Bo7)";
-    if (stage === "ro4_m2") return "Launch Grand Finale (Bo7)";
+    if (stage === "cut_ceremony") return "Launch Elimination: Round of 32 (1v1)";
+    if (stage === "ro32") return "Launch Elimination: Round of 16 (1v1)";
+    if (stage === "ro16") return "Launch Quarter-Finals (Match 1 of 4 - 1v1)";
+    if (stage === "ro8_m1") return "Launch Quarter-Finals (Match 2 of 4 - 1v1)";
+    if (stage === "ro8_m2") return "Launch Quarter-Finals (Match 3 of 4 - 1v1)";
+    if (stage === "ro8_m3") return "Launch Quarter-Finals (Match 4 of 4 - 1v1)";
+    if (stage === "ro8_m4") return "Launch Semi-Finals (Match 1 of 2 - 7 HP 1v1)";
+    if (stage === "ro4_m1") return "Launch Semi-Finals (Match 2 of 2 - 7 HP 1v1)";
+    if (stage === "ro4_m2") return "Launch Grand Finale (8 HP 1v1 Boss Fight)";
     if (stage === "finals") return "Conclude Tournament & Crown Champion";
     if (stage === "champion") return "Tournament Complete";
     return "Advance Stage";

@@ -127,8 +127,8 @@ class PlayerTournamentTest(unittest.TestCase):
         seed_bots.seed_database(36)
         tournament.start_tournament()
 
-        # Run 6 Swiss rounds to build full history
-        for r in range(1, 7):
+        # Run all Swiss rounds to build full history
+        for r in range(1, tournament.SWISS_ROUNDS + 1):
             tournament.advance_stage(f"swiss_{r}")
 
         # Advance to Cut Ceremony
@@ -172,7 +172,7 @@ class PlayerTournamentTest(unittest.TestCase):
     def test_sequential_finals_mirroring(self):
         seed_bots.seed_database(32)
         tournament.start_tournament()
-        for r in range(1, 7):
+        for r in range(1, tournament.SWISS_ROUNDS + 1):
             tournament.advance_stage(f"swiss_{r}")
         tournament.advance_stage("cut_ceremony")
         tournament.advance_stage("ro32")

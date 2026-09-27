@@ -2,7 +2,7 @@
 # Action names are fixed (RELOAD, SHIELD, SHOOT, SNIPE, COUNTER); their numbers are not.
 
 [game]
-start_hp = 3
+start_hp = 5
 start_ammo = 0
 max_ammo = 3
 max_rounds = 25

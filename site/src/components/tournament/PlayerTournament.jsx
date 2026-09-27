@@ -106,20 +106,21 @@ export default function PlayerTournament({ me, eventStatus, onSignOut }) {
     if (activeStage === "ready_room") return "STAGE 0: READY ROOM";
     if (activeStage.startsWith("swiss_")) {
       const rnd = activeStage.replace("swiss_", "");
-      return `SWISS STAGE · ROUND ${rnd} OF 6`;
+      const totalSwiss = status?.swiss_rounds || 8;
+      return `SWISS STAGE · ROUND ${rnd} OF ${totalSwiss}`;
     }
     if (activeStage === "cut_ceremony") return "ACT 1 CONCLUDED · THE TOP 32 CUT";
-    if (activeStage === "ro32") return "SINGLE ELIMINATION · ROUND OF 32";
-    if (activeStage === "ro16") return "SINGLE ELIMINATION · ROUND OF 16";
+    if (activeStage === "ro32") return "SINGLE ELIMINATION · ROUND OF 32 (1V1)";
+    if (activeStage === "ro16") return "SINGLE ELIMINATION · ROUND OF 16 (1V1)";
     if (activeStage.startsWith("ro8_")) {
       const m = activeStage.replace("ro8_m", "");
-      return `QUARTER-FINALS · MATCH ${m} OF 4`;
+      return `QUARTER-FINALS · MATCH ${m} OF 4 (1V1)`;
     }
     if (activeStage.startsWith("ro4_")) {
       const m = activeStage.replace("ro4_m", "");
-      return `SEMI-FINALS · MATCH ${m} OF 2 (BEST OF 7)`;
+      return `SEMI-FINALS · MATCH ${m} OF 2 (7 HP 1V1)`;
     }
-    if (activeStage === "finals") return "GRAND FINALE · WORLD CHAMPIONSHIP";
+    if (activeStage === "finals") return "GRAND FINALE · WORLD CHAMPIONSHIP (8 HP 1V1)";
     if (activeStage === "champion") return "TOURNAMENT CHAMPION CROWNED";
     return activeStage.toUpperCase();
   };
@@ -245,7 +246,7 @@ export default function PlayerTournament({ me, eventStatus, onSignOut }) {
               <div className="player-bye-banner">
                 <span className="player-bye-icon">⭐</span>
                 <div>
-                  <strong>AUTOMATIC ADVANCE (BYE ROUND):</strong> You were awarded an automatic 3-0 victory (+1 Match Win) for this round. Mirroring the Big Screen marquee duel below!
+                  <strong>AUTOMATIC ADVANCE (BYE ROUND):</strong> You were awarded an automatic 1-0 victory (+1 Match Win) for this round. Mirroring the Big Screen marquee duel below!
                 </div>
               </div>
             )}

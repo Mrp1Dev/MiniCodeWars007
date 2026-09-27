@@ -42,15 +42,15 @@ class Tournament(unittest.TestCase):
                 seen[m["p1_id"]] += 1
                 if m["p2_id"] is None:
                     byes[m["p1_id"]] += 1
-                    self.assertEqual((m["p1_score"], m["p2_score"], m["winner_id"]), (3, 0, m["p1_id"]))
+                    self.assertEqual((m["p1_score"], m["p2_score"], m["winner_id"]), (1, 0, m["p1_id"]))
                     continue
                 seen[m["p2_id"]] += 1
                 pair = tuple(sorted((m["p1_id"], m["p2_id"])))
                 self.assertNotIn(pair, played, f"rematch in {stage}")
                 played.add(pair)
                 self.assertIn(m["winner_id"], pair, "every Swiss match has a decisive winner")
-                self.assertLessEqual(max(m["p1_score"], m["p2_score"]), 3)
-                self.assertLessEqual(len(json.loads(m["replay_json"])), 5)
+                self.assertLessEqual(max(m["p1_score"], m["p2_score"]), 1)
+                self.assertEqual(len(json.loads(m["replay_json"])), 1)
             self.assertEqual(set(seen.values()), {1}, f"everyone plays exactly once in {stage}")
             self.assertEqual(len(seen), PLAYERS)
         self.assertEqual(sum(byes.values()), T.SWISS_ROUNDS)
@@ -97,8 +97,8 @@ class Tournament(unittest.TestCase):
         for stage in T.STAGE_RO4 + [T.STAGE_FINALS]:
             for m in rows(stage):
                 if m["p2_id"]:
-                    self.assertLessEqual(len(json.loads(m["replay_json"])), 7)
-                    self.assertLessEqual(max(m["p1_score"], m["p2_score"]), 4)
+                    self.assertEqual(len(json.loads(m["replay_json"])), 1)
+                    self.assertLessEqual(max(m["p1_score"], m["p2_score"]), 1)
         champion = T.get_screen_data()["highlight"]
         self.assertEqual(champion["winner_id"], rows(T.STAGE_FINALS)[0]["winner_id"])
         self.assertTrue(champion["p1_real_name"], "names are unveiled for the finale")

@@ -9,6 +9,8 @@ Implements the tournament system specification (tournament.md):
 - Participant code runs in sandboxed processes (the same runner that validated submissions)
 - In-memory status caching for high-frequency polling by 500+ clients
 """
+import copy
+import dataclasses
 import functools
 import hashlib
 import json
@@ -21,7 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, Tuple
 
-from engine import BotRunner, load_config, run_match
+from engine import BotRunner, Config, load_config, run_match
 from engine.rules import FUMBLE
 from engine.sandbox import SandboxBot
 
@@ -30,7 +32,7 @@ from . import db, settings
 logger = logging.getLogger("tournament")
 CFG = load_config(settings.CONFIG_PATH)
 
-SWISS_ROUNDS = 6
+SWISS_ROUNDS = 8
 TOP_CUT_COUNT = 32
 
 # Stages
@@ -51,11 +53,29 @@ STAGES = [STAGE_READY] + STAGE_SWISS + [STAGE_CUT_CEREMONY, STAGE_RO32, STAGE_RO
 ROUND_NUMBERS = {
     **{s: n for n, s in enumerate(STAGE_SWISS, start=1)},
     STAGE_CUT_CEREMONY: SWISS_ROUNDS,
-    STAGE_RO32: 7, STAGE_RO16: 8,
-    **{s: 9 + i for i, s in enumerate(STAGE_RO8)},
-    **{s: 13 + i for i, s in enumerate(STAGE_RO4)},
-    STAGE_FINALS: 15, STAGE_CHAMPION: 15,
+    STAGE_RO32: SWISS_ROUNDS + 1,
+    STAGE_RO16: SWISS_ROUNDS + 2,
+    **{s: SWISS_ROUNDS + 3 + i for i, s in enumerate(STAGE_RO8)},
+    **{s: SWISS_ROUNDS + 7 + i for i, s in enumerate(STAGE_RO4)},
+    STAGE_FINALS: SWISS_ROUNDS + 9,
+    STAGE_CHAMPION: SWISS_ROUNDS + 9,
 }
+
+
+def get_stage_cfg(stage: str) -> Config:
+    """Returns the game Config for a given stage, applying the +2 HP and +3 HP twists."""
+    base_hp = CFG.start_hp
+    if stage == STAGE_FINALS:
+        hp = base_hp + 3  # Grand Finale Boss Fight (+3 HP -> 8 HP)
+    elif stage in STAGE_RO4:
+        hp = base_hp + 2  # Semi-Finals Endurance (+2 HP -> 7 HP)
+    else:
+        hp = base_hp
+    if hp == base_hp:
+        return CFG
+    raw = copy.deepcopy(CFG.raw)
+    raw["game"]["start_hp"] = hp
+    return dataclasses.replace(CFG, start_hp=hp, raw=raw)
 
 # Standard 32-player seeding: 1 and 2 can only meet in the final.
 SEED_PAIRS = [
@@ -529,9 +549,11 @@ class _Contestant:
             self.sandbox.close()
 
 
-def _slim_replay(replay: Dict[str, Any]) -> Dict[str, Any]:
+def _slim_replay(replay: Dict[str, Any], start_hp: int = 5) -> Dict[str, Any]:
     """Keeps what playback and stats need; drops the config copy and bots' print output."""
+    hp = replay.get("config", {}).get("game", {}).get("start_hp", start_hp)
     replay.pop("config", None)
+    replay["start_hp"] = hp
     for t in replay.get("turns", []):
         t.pop("output", None)
     return replay
@@ -540,18 +562,22 @@ def _slim_replay(replay: Dict[str, Any]) -> Dict[str, Any]:
 def run_match_series(
     p1: ParticipantEntry,
     p2: Optional[ParticipantEntry],
-    max_games: int = 5,
-    wins_required: int = 3,
+    max_games: int = 1,
+    wins_required: int = 1,
     is_swiss: bool = True,
     seed_base: int = 1000,
     history: Optional[Dict[int, Any]] = None,
-    round_number: int = 1
+    round_number: int = 1,
+    cfg: Optional[Config] = None
 ) -> Dict[str, Any]:
-    """Runs a Best of 5 (max 5) or Best of 7 (max 7) series.
+    """Runs a 1v1 match (or multi-game series if requested).
     - Engine game draw: neither bot gets a game win
     - Tied series (Swiss): 10-tier merit history decides the match point
     - Tied series (Elimination): in-match damage, HP, fumbles, then merit history, seed, hash
     """
+    if cfg is None:
+        cfg = CFG
+
     if p2 is None:
         # Bye: automatic clean sweep
         return {
@@ -564,8 +590,9 @@ def run_match_series(
             "draw_reason": None,
             "games": [],
             "highlight_score": 0.0,
-            "p1_damage": wins_required * CFG.start_hp,
+            "p1_damage": wins_required * cfg.start_hp,
             "p2_damage": 0,
+            "start_hp": cfg.start_hp,
         }
 
     games = []
@@ -584,9 +611,9 @@ def run_match_series(
     try:
         c2 = _Contestant(p2)
         for game_idx in range(1, max_games + 1):
-            replay = run_match([c1.for_game(), c2.for_game()], CFG, seed=seed_base + game_idx,
+            replay = run_match([c1.for_game(), c2.for_game()], cfg, seed=seed_base + game_idx,
                                names=(p1.bot_name, p2.bot_name))
-            games.append(_slim_replay(replay))
+            games.append(_slim_replay(replay, start_hp=cfg.start_hp))
 
             winner = replay["result"]["winner"]
             final = replay["result"]["final"]
@@ -762,6 +789,7 @@ def run_match_series(
         "highlight_score": round(highlight_score, 2),
         "p1_damage": p1_total_damage,
         "p2_damage": p2_total_damage,
+        "start_hp": cfg.start_hp,
     }
 
 
@@ -771,21 +799,24 @@ def precompute_round_matches(
     round_number: int,
     stage_name: str,
     pairings: List[Tuple[int, ParticipantEntry, Optional[ParticipantEntry]]],
-    max_games: int = 5,
-    wins_required: int = 3,
+    max_games: int = 1,
+    wins_required: int = 1,
     is_swiss: bool = True,
     history: Optional[Dict[int, Any]] = None,
     cancel: Optional[threading.Event] = None,
+    cfg: Optional[Config] = None,
 ) -> List[Dict[str, Any]]:
     """Runs all (match_index, p1, p2) pairings in parallel. Results keep the pairings' order.
     Once `cancel` is set, matches that haven't started are skipped (their result is None)."""
+    if cfg is None:
+        cfg = get_stage_cfg(stage_name)
 
     def task(item):
         if cancel is not None and cancel.is_set():
             return None
         idx, p1, p2 = item
         seed = 10000 * round_number + idx * 10
-        series = run_match_series(p1, p2, max_games, wins_required, is_swiss, seed, history, round_number)
+        series = run_match_series(p1, p2, max_games, wins_required, is_swiss, seed, history, round_number, cfg=cfg)
         series["match_index"] = idx
         series["stage"] = stage_name
         return series
@@ -877,13 +908,14 @@ def _compute_stage(stage: str, cancel: Optional[threading.Event] = None) -> Dict
     rnd = ROUND_NUMBERS[stage]
     results: List[Dict[str, Any]] = []
     highlight = None
+    stage_cfg = get_stage_cfg(stage)
     if stage in STAGE_SWISS:
         pairings, _ = pair_swiss_round(rnd)
         if not pairings:
             raise ValueError("No eligible tournament entries found to pair.")
         history = {s.participant_id: s for s in compute_standings_from_history(rnd - 1)} if rnd > 1 else {}
         results = precompute_round_matches(rnd, stage, [(i, p1, p2) for i, (p1, p2) in enumerate(pairings)],
-                                           5, 3, True, history, cancel)
+                                           1, 1, True, history, cancel, cfg=stage_cfg)
         if cancel is not None and cancel.is_set():
             raise _Cancelled()
         # Marquee duel from the top of the field (pairings are best-first), without saying so on screen.
@@ -895,15 +927,15 @@ def _compute_stage(stage: str, cancel: Optional[threading.Event] = None) -> Dict
         if stage in (STAGE_RO32, STAGE_RO16):
             if not pairings:
                 raise ValueError("No one qualified for the elimination bracket.")
-            results = precompute_round_matches(rnd, stage, pairings, 5, 3, False, history, cancel)
+            results = precompute_round_matches(rnd, stage, pairings, 1, 1, False, history, cancel, cfg=stage_cfg)
             if cancel is not None and cancel.is_set():
                 raise _Cancelled()
             highlight = _pick_highlight(results)
-        elif pairings:  # one sequential match; Semi-Finals and the Grand Finale are Best of 7
-            best_of_7 = stage in STAGE_RO4 or stage == STAGE_FINALS
+        elif pairings:  # one sequential match (Ro8, Ro4, Finals) - all 1v1
             _, w1, w2 = pairings[0]
-            series = run_match_series(w1, w2, 7 if best_of_7 else 5, 4 if best_of_7 else 3,
-                                      is_swiss=False, seed_base=10000 * rnd, history=history, round_number=rnd)
+            series = run_match_series(w1, w2, 1, 1,
+                                      is_swiss=False, seed_base=10000 * rnd, history=history, round_number=rnd,
+                                      cfg=stage_cfg)
             series.update(match_index=0, stage=stage, highlight_score=100.0)
             results, highlight = [series], series
     return {"results": results, "highlight": highlight}
@@ -1376,6 +1408,8 @@ def get_tournament_status() -> Dict[str, Any]:
     status_data = {
         "stage": stage,
         "round_number": state["round_number"],
+        "swiss_rounds": SWISS_ROUNDS,
+        "start_hp": get_stage_cfg(stage).start_hp,
         "started_at": state["started_at"],
         "paused": is_paused,
         "paused_at": p_at,
@@ -1519,6 +1553,7 @@ def _build_screen_payload() -> Dict[str, Any]:
             highlight_replay = {
                 "match_id": row["id"],
                 "stage": row["stage"],
+                "start_hp": get_stage_cfg(row["stage"]).start_hp,
                 "is_bye": bool(row["is_bye"]),
                 "p1_id": row["p1_id"],
                 "p2_id": row["p2_id"],
@@ -1698,6 +1733,7 @@ def _build_participant_cache():
             fmt_match = {
                 "match_id": m["id"],
                 "stage": m["stage"],
+                "start_hp": get_stage_cfg(m["stage"]).start_hp,
                 "is_bye": bool(m["is_bye"]),
                 "p1_id": m["p1_id"],
                 "p2_id": m["p2_id"],

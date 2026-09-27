@@ -101,24 +101,25 @@ export default function BigScreen({ onExit }) {
     if (stage === "ready_room") return "STAGE 0: READY ROOM";
     if (stage.startsWith("swiss_")) {
       const rnd = stage.replace("swiss_", "");
-      return `SWISS STAGE · ROUND ${rnd} OF 6`;
+      const totalSwiss = status?.swiss_rounds || 8;
+      return `SWISS STAGE · ROUND ${rnd} OF ${totalSwiss}`;
     }
     if (stage.startsWith("intermission_")) {
       const rnd = stage.replace("intermission_", "");
       return `SWISS ROUND ${rnd} COMPLETE · TIERS UPDATED`;
     }
     if (stage === "cut_ceremony") return "ACT 1 CONCLUDED · THE TOP 32 CUT";
-    if (stage === "ro32") return "SINGLE ELIMINATION · ROUND OF 32";
-    if (stage === "ro16") return "SINGLE ELIMINATION · ROUND OF 16";
+    if (stage === "ro32") return "SINGLE ELIMINATION · ROUND OF 32 (1V1)";
+    if (stage === "ro16") return "SINGLE ELIMINATION · ROUND OF 16 (1V1)";
     if (stage.startsWith("ro8_")) {
       const m = stage.replace("ro8_m", "");
-      return `QUARTER-FINALS · MATCH ${m} OF 4`;
+      return `QUARTER-FINALS · MATCH ${m} OF 4 (1V1)`;
     }
     if (stage.startsWith("ro4_")) {
       const m = stage.replace("ro4_m", "");
-      return `SEMI-FINALS · MATCH ${m} OF 2 (BEST OF 7)`;
+      return `SEMI-FINALS · MATCH ${m} OF 2 (7 HP 1V1)`;
     }
-    if (stage === "finals") return "GRAND FINALE · WORLD CHAMPIONSHIP (BEST OF 7)";
+    if (stage === "finals") return "GRAND FINALE · WORLD CHAMPIONSHIP (8 HP 1V1)";
     if (stage === "champion") return "TOURNAMENT CHAMPION CROWNED";
     return stage.toUpperCase();
   };

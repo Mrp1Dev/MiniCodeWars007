@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 
-const FRESH = { hp: 3, ammo: 0, shields: 3 };
+function getFresh(game, fallbackHp = 5) {
+  const hp = game?.start_hp ?? game?.config?.game?.start_hp ?? fallbackHp;
+  return { hp, ammo: 0, shields: 3 };
+}
 
 function wins(games, upTo) {
   let p1 = 0;
@@ -13,12 +16,13 @@ function wins(games, upTo) {
   return [p1, p2];
 }
 
-function snapshot(games, gameIndex, turnIndex, { isIntermission = false, isMatchComplete = false, scoredGames }) {
+function snapshot(games, gameIndex, turnIndex, { isIntermission = false, isMatchComplete = false, scoredGames, startHp = 5 }) {
   const currentGame = games[gameIndex] || null;
   const currentTurn = currentGame?.turns?.[turnIndex] || null;
   const [p1Score, p2Score] = wins(games, scoredGames);
-  const p1 = currentTurn?.state?.[0] || FRESH;
-  const p2 = currentTurn?.state?.[1] || FRESH;
+  const fresh = getFresh(currentGame, startHp);
+  const p1 = currentTurn?.state?.[0] || fresh;
+  const p2 = currentTurn?.state?.[1] || fresh;
   return {
     gameIndex,
     turnIndex,
@@ -28,8 +32,8 @@ function snapshot(games, gameIndex, turnIndex, { isIntermission = false, isMatch
     currentTurn,
     p1Score,
     p2Score,
-    p1Hp: p1.hp ?? 3,
-    p2Hp: p2.hp ?? 3,
+    p1Hp: p1.hp ?? fresh.hp,
+    p2Hp: p2.hp ?? fresh.hp,
     p1Ammo: p1.ammo ?? 0,
     p2Ammo: p2.ammo ?? 0,
     p1Shields: p1.shields ?? 3,
@@ -42,7 +46,7 @@ function lastTurnIndex(game) {
 }
 
 /** Where a series stands `elapsedMs` after it started playing. */
-function atElapsed(games, elapsedMs, turnMs, gamePauseMs) {
+function atElapsed(games, elapsedMs, turnMs, gamePauseMs, startHp = 5) {
   let t = 0;
   for (let i = 0; i < games.length; i++) {
     const turnCount = games[i].turns?.length || 0;
@@ -51,28 +55,28 @@ function atElapsed(games, elapsedMs, turnMs, gamePauseMs) {
       const inGame = elapsedMs - t;
       if (inGame >= duration) {
         // Between games: the finished game's result counts toward the series score.
-        return snapshot(games, i, lastTurnIndex(games[i]), { isIntermission: true, scoredGames: i + 1 });
+        return snapshot(games, i, lastTurnIndex(games[i]), { isIntermission: true, scoredGames: i + 1, startHp });
       }
-      return snapshot(games, i, Math.min(lastTurnIndex(games[i]), Math.floor(inGame / turnMs)), { scoredGames: i });
+      return snapshot(games, i, Math.min(lastTurnIndex(games[i]), Math.floor(inGame / turnMs)), { scoredGames: i, startHp });
     }
     t += duration + gamePauseMs;
   }
   const last = games.length - 1;
-  return snapshot(games, last, lastTurnIndex(games[last]), { isMatchComplete: true, scoredGames: games.length });
+  return snapshot(games, last, lastTurnIndex(games[last]), { isMatchComplete: true, scoredGames: games.length, startHp });
 }
 
 /** Host-controlled step: `step` counts turns across all games; stepping past the end completes the match. */
-function atStep(games, step) {
+function atStep(games, step, startHp = 5) {
   let acc = 0;
   for (let i = 0; i < games.length; i++) {
     const turnCount = games[i].turns?.length || 0;
     if (step < acc + turnCount) {
-      return snapshot(games, i, step - acc, { scoredGames: i });
+      return snapshot(games, i, step - acc, { scoredGames: i, startHp });
     }
     acc += turnCount;
   }
   const last = games.length - 1;
-  return snapshot(games, last, lastTurnIndex(games[last]), { isMatchComplete: true, scoredGames: games.length });
+  return snapshot(games, last, lastTurnIndex(games[last]), { isMatchComplete: true, scoredGames: games.length, startHp });
 }
 
 /**
@@ -89,6 +93,7 @@ export function useDeterministicPlayback({
   matchId = null,
   turnMs = 750,
   gamePauseMs = 2500,
+  startHp = 5,
   isCompleted = false,
 }) {
   // Offset between the server clock and this device's clock, refreshed with every poll.
@@ -103,25 +108,25 @@ export function useDeterministicPlayback({
   const hasGames = games.length > 0;
 
   const [playback, setPlayback] = useState(() =>
-    hasGames ? snapshot(games, 0, 0, { scoredGames: 0 }) : { ...snapshot([], 0, 0, { scoredGames: 0 }), isMatchComplete: true }
+    hasGames ? snapshot(games, 0, 0, { scoredGames: 0, startHp }) : { ...snapshot([], 0, 0, { scoredGames: 0, startHp }), isMatchComplete: true }
   );
 
   useEffect(() => {
     const list = gamesRef.current || [];
     if (list.length === 0) {
-      setPlayback({ ...snapshot([], 0, 0, { scoredGames: 0 }), isMatchComplete: true });
+      setPlayback({ ...snapshot([], 0, 0, { scoredGames: 0, startHp }), isMatchComplete: true });
       return undefined;
     }
     if (isCompleted) {
-      setPlayback(atElapsed(list, Number.MAX_SAFE_INTEGER, turnMs, gamePauseMs));
+      setPlayback(atElapsed(list, Number.MAX_SAFE_INTEGER, turnMs, gamePauseMs, startHp));
       return undefined;
     }
     if (turnStep >= 0) {
-      setPlayback(atStep(list, turnStep));
+      setPlayback(atStep(list, turnStep, startHp));
       return undefined;
     }
     if (!startedAt) {
-      setPlayback(snapshot(list, 0, 0, { scoredGames: 0 }));
+      setPlayback(snapshot(list, 0, 0, { scoredGames: 0, startHp }));
       return undefined;
     }
 
@@ -136,7 +141,7 @@ export function useDeterministicPlayback({
       if (current.length > 0) {
         const now = Date.now() / 1000 + clockOffsetRef.current;
         const elapsedMs = Math.max(0, (now - startedAt - (accumulatedPause || 0)) * 1000);
-        const next = atElapsed(current, elapsedMs, turnMs, gamePauseMs);
+        const next = atElapsed(current, elapsedMs, turnMs, gamePauseMs, startHp);
         const key = `${next.gameIndex}:${next.turnIndex}:${next.isIntermission}:${next.isMatchComplete}`;
         if (key !== lastKey) {
           lastKey = key;
@@ -153,7 +158,7 @@ export function useDeterministicPlayback({
       cancelled = true;
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
-  }, [startedAt, paused, accumulatedPause, turnStep, matchId, hasGames, turnMs, gamePauseMs, isCompleted]);
+  }, [startedAt, paused, accumulatedPause, turnStep, matchId, hasGames, turnMs, gamePauseMs, startHp, isCompleted]);
 
   return playback;
 }
