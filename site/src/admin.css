@@ -451,3 +451,54 @@
   gap: 18px;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
 }
+
+/* Participants: right-click a row to rename or kick */
+.admin-row-menu { cursor: context-menu; }
+.admin-row-menu.is-kicked td { opacity: 0.45; text-decoration: line-through; }
+.admin-row-menu.is-kicked td:nth-child(6) { opacity: 1; text-decoration: none; }
+.admin-row-menu.is-kicked td:last-child { text-decoration: none; }
+
+.admin-context-menu {
+  position: fixed;
+  z-index: 120;
+  min-width: 210px;
+  padding: 5px;
+  background: var(--surface);
+  border: 1px solid var(--line-2);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+}
+.admin-context-title {
+  padding: 6px 10px 8px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+}
+.admin-context-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.admin-context-menu button:hover,
+.admin-context-menu button:focus-visible { background: rgba(255, 255, 255, 0.06); outline: none; }
+.admin-context-menu button.danger { color: var(--red); }
+.admin-context-menu button.danger:hover { background: rgba(229, 72, 77, 0.12); }
+
+.admin-modal-small { max-width: 420px; }
