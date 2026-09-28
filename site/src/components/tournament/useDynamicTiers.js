@@ -2,12 +2,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 const FLARE_MS = 4000;
 
-function toTiers(list) {
+const CUT = 32;
+const BUBBLE = 4; // bots shown just below the cut line
+
+function toTiers(list, bubble) {
   return {
     tier1: list.filter((b) => b.tier === 1),
     tier2: list.filter((b) => b.tier === 2),
     tier3: list.filter((b) => b.tier === 3),
     total_top32: list.length,
+    bubble,
   };
 }
 
@@ -60,7 +64,7 @@ function liveTiers(baseStandings, roundMatches, elapsedMs) {
     return (a.participant_id || 0) - (b.participant_id || 0);
   });
 
-  const top32 = sorted.slice(0, 32).map((bot, index) => {
+  const ranked = sorted.slice(0, CUT + BUBBLE).map((bot, index) => {
     const rank = index + 1;
     return {
       ...bot,
@@ -69,7 +73,7 @@ function liveTiers(baseStandings, roundMatches, elapsedMs) {
       delta: bot.prev_rank ? bot.prev_rank - rank : 0, // positive = climbed; none before Round 1
     };
   });
-  return { tiers: toTiers(top32), allFinished };
+  return { tiers: toTiers(ranked.slice(0, CUT), ranked.slice(CUT)), allFinished };
 }
 
 /**

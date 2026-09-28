@@ -92,7 +92,16 @@ export default function PlayerTournament({ me, eventStatus, onSignOut }) {
   const activeStage = status?.stage || "ready_room";
   const paused = status?.paused || false;
   const role = data?.role || "ready";
-  const myStanding = data?.my_standing || null;
+  // Id of the participant's own match once its playback has finished on this page.
+  const [playedMatchId, setPlayedMatchId] = useState(null);
+  // During a Swiss round the latest standing already includes this round's result, so the chip
+  // keeps the pre-round standing until the participant's own match has fully played out.
+  const hideRoundResult =
+    activeStage.startsWith("swiss_") &&
+    role === "playing" &&
+    data?.match?.match_id != null &&
+    playedMatchId !== data.match.match_id;
+  const myStanding = (hideRoundResult ? data?.prev_standing : data?.my_standing) || null;
 
   const isReady = activeStage === "ready_room";
   const isCut = activeStage === "cut_ceremony";
@@ -281,6 +290,7 @@ export default function PlayerTournament({ me, eventStatus, onSignOut }) {
                 myParticipantId={me?.id}
                 isMirroring={Boolean(data?.is_mirroring)}
                 mirrorTag={getMirrorTag()}
+                onMatchComplete={role === "playing" ? setPlayedMatchId : null}
               />
             )}
           </div>

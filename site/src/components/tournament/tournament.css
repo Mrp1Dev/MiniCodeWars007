@@ -220,6 +220,11 @@
 }
 
 /* Full Width View Variant */
+/* The Swiss board lists 36 names in two columns, so it grows with the screen. */
+.screen-content.swiss {
+  grid-template-columns: clamp(460px, 32vw, 620px) 1fr;
+}
+
 .screen-content.full-width {
   grid-template-columns: 1fr;
   padding: 24px 36px;
@@ -274,11 +279,11 @@
 
 .tier-board-scroll {
   flex: 1;
-  padding: 8px 12px;
+  min-height: 0;
+  padding: 10px 12px 12px;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
   overflow: hidden;
 }
 
@@ -286,81 +291,67 @@
   overflow-y: hidden;
 }
 
-/* Tier Section */
+/* Board section: grows in proportion to its row count so the rows fill the panel evenly. */
 .tier-group {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
+  min-height: 0;
+  flex-shrink: 1;
+  flex-basis: 30px;
 }
 
-.tier-group-header {
+.tier-empty {
+  flex: 1;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 3px 8px;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  border-radius: 4px;
+  justify-content: center;
+  font-size: 13px;
+  color: var(--t-muted);
 }
 
-.tier-badge-star {
-  font-size: 9px;
-  color: var(--t-gold-bright);
-  font-weight: 800;
-}
-
-.tier-group-1 .tier-group-header {
-  background: rgba(201, 169, 97, 0.15);
-  color: var(--t-gold-bright);
-  border-left: 3px solid var(--t-gold);
-}
-
-.tier-group-2 .tier-group-header {
-  background: rgba(160, 174, 192, 0.12);
-  color: #cbd5e1;
-  border-left: 3px solid #94a3b8;
-}
-
-.tier-group-3 .tier-group-header {
-  background: rgba(180, 115, 60, 0.12);
-  color: #e2b17a;
-  border-left: 3px solid #b4733c;
-}
-
+/* Rows fill down the left column first, then the right (rows set inline). */
 .tier-grid-2col {
+  flex: 1;
+  min-height: 0;
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 3px 6px;
-}
-
-.grid-span-2 {
-  grid-column: span 2;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-flow: column;
+  gap: 4px 8px;
 }
 
 .tier-bot-item {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 3px 6px;
+  gap: 6px;
+  padding: 0 8px;
+  min-height: 0;
+  max-height: 44px;
   background: rgba(255, 255, 255, 0.025);
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 4px;
-  height: 24px;
   box-sizing: border-box;
-  transition: all 0.15s ease;
+  transition: background 0.3s ease, border-color 0.3s ease;
 }
 
-.tier-bot-item:hover {
-  background: rgba(201, 169, 97, 0.08);
-  border-color: rgba(201, 169, 97, 0.3);
-  transform: translateY(-1px);
+/* Elite 8: gold rank and a gold left edge. */
+.tier-bot-item.elite {
+  border-left: 2px solid var(--t-gold);
+  background: rgba(201, 169, 97, 0.06);
 }
 
-.tier-bot-item.in-battle {
-  border-color: rgba(201, 169, 97, 0.2);
-  background: rgba(201, 169, 97, 0.02);
+.tier-bot-item.elite .tier-bot-rank {
+  color: var(--t-gold-bright);
+}
+
+.elite-key {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 3px;
+  border-radius: 2px;
+  background: var(--t-gold);
+  vertical-align: -1px;
 }
 
 .tier-bot-item.just-updated {
@@ -375,11 +366,13 @@
   100% { transform: scale(1); }
 }
 
-.battling-pulse {
-  font-size: 8px;
-  color: var(--t-gold);
-  margin-left: 3px;
-  display: inline-block;
+/* A quiet pulsing dot instead of an "IN BATTLE" label on every row. */
+.battling-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--t-gold);
+  flex: none;
   animation: pulseGoldDot 1.2s infinite ease-in-out;
 }
 
@@ -388,47 +381,66 @@
   50% { opacity: 1; transform: scale(1.2); }
 }
 
-.record-battling {
-  color: rgba(201, 169, 97, 0.8);
-}
-
 .tier-bot-rank {
-  font-size: 9.5px;
+  font-size: 12px;
   font-weight: 700;
-  color: var(--t-gold);
+  color: var(--t-muted);
   font-family: var(--mono);
-  width: 20px;
+  width: 18px;
+  text-align: right;
   flex: none;
 }
 
 .tier-bot-name {
-  font-size: 11px;
+  font-size: clamp(12.5px, 0.75vw, 14px);
   font-weight: 600;
   color: #f0f6fc;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
+  min-width: 0;
 }
 
-.tier-bot-record {
-  font-size: 9.5px;
-  color: var(--t-muted);
-  font-family: var(--mono);
+/* Fixed-width slot so the arrows line up at the right edge, even on rows without one. */
+.tier-delta-slot {
+  width: 12px;
   flex: none;
+  display: flex;
+  justify-content: flex-end;
 }
 
 .tier-delta {
-  font-size: 9.5px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  flex: none;
+  font-size: 11px;
 }
 
 .tier-delta.up { color: var(--t-green); }
 .tier-delta.down { color: var(--t-red); }
-.tier-delta.same { color: var(--t-muted); }
+
+/* The cut line and the first bots just outside it. */
+.tier-cut-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--t-red);
+}
+
+.tier-cut-line::before,
+.tier-cut-line::after {
+  content: "";
+  flex: 1;
+  border-top: 1px dashed rgba(229, 72, 77, 0.55);
+}
+
+.tier-group-bubble .tier-bot-item {
+  opacity: 0.5;
+  border-style: dashed;
+}
 
 /* ==========================================================================
    CENTER STAGE: MARQUEE DUEL ARENA
@@ -541,15 +553,15 @@
   text-align: right;
 }
 
+/* The winner's card carries the only gold accent; no glow. */
 .combatant-panel.combatant-winner {
   border-color: var(--t-gold) !important;
-  background: rgba(201, 169, 97, 0.08) !important;
-  box-shadow: 0 0 30px rgba(201, 169, 97, 0.25) !important;
+  background: rgba(201, 169, 97, 0.05) !important;
 }
 
-.combatant-panel.combatant-loser {
-  opacity: 0.55;
-  filter: grayscale(40%);
+/* The loser stays readable: only the name and HP step back. */
+.combatant-panel.combatant-loser .combatant-bot-name {
+  color: var(--t-muted);
 }
 
 .combatant-panel.combatant-draw {
@@ -575,17 +587,26 @@
 
 .status-badge-pill {
   font-size: 10.5px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  padding: 3px 10px;
-  border-radius: 999px;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.ko-tag {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--t-red);
+  border: 1px solid rgba(229, 72, 77, 0.5);
+  border-radius: 4px;
+  padding: 1px 6px;
 }
 
 .status-badge-pill.pill-winner {
-  background: linear-gradient(180deg, #ecd8a4 0%, #b5924d 100%);
+  background: var(--t-gold);
   color: #0b0f14;
-  box-shadow: 0 0 12px var(--t-gold-glow);
 }
 
 .status-badge-pill.pill-draw {
@@ -689,6 +710,17 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+}
+
+/* Agent 002 mirrors Agent 001: shields and ammo hug the right edge. */
+.combatant-panel.p2 .meters-grid {
+  display: flex;
+  justify-content: flex-end;
+  gap: 28px;
+}
+
+.combatant-panel.p2 .meters-grid .meter-label {
+  justify-content: flex-end;
 }
 
 .ammo-meter {
@@ -827,61 +859,61 @@
   color: var(--t-cyan);
 }
 
-/* Big Screen Match Conclusion Card */
-.clash-outcome-card {
+/* Final score, shown in the centre once the match is over */
+.clash-final {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 20px 24px;
-  border-radius: 12px;
-  background: rgba(14, 18, 24, 0.95);
-  border: 2px solid var(--t-gold);
-  box-shadow: 0 0 35px rgba(201, 169, 97, 0.3);
-  animation: outcome-pop 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  gap: 4px;
+  animation: final-in 0.3s ease-out;
 }
 
-@keyframes outcome-pop {
-  0% { transform: scale(0.7); opacity: 0; }
-  100% { transform: scale(1); opacity: 1; }
+@keyframes final-in {
+  0% { opacity: 0; transform: translateY(4px); }
+  100% { opacity: 1; transform: none; }
 }
 
-.outcome-icon {
-  font-size: 38px;
-  line-height: 1;
-}
-
-.outcome-title {
+.final-label {
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: var(--t-gold-bright);
-}
-
-.outcome-winner-name {
-  font-size: 20px;
-  font-weight: 800;
-  color: #fff;
-  letter-spacing: 0.04em;
-  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.6);
-}
-
-.outcome-rule-explanation {
-  font-size: 11.5px;
   color: var(--t-muted);
-  line-height: 1.45;
-  text-align: center;
-  max-width: 270px;
-  margin-top: 4px;
 }
 
-.outcome-rule-explanation strong {
-  color: var(--t-gold-bright);
+.final-score {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  font-family: var(--mono);
+  font-size: 48px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--t-muted);
+}
+
+.final-score .lead {
+  color: #fff;
+}
+
+.final-dash {
+  font-size: 32px;
+  color: var(--t-faint);
+}
+
+.final-note {
+  font-size: 12px;
+  color: var(--t-muted);
+  text-align: center;
+  max-width: 220px;
 }
 
 /* Event Commentary Ticker */
+.commentary-final {
+  color: var(--t-gold-bright);
+  font-weight: 500;
+}
+
 .arena-commentary {
   padding: 12px 24px;
   background: rgba(10, 14, 20, 0.9);
@@ -1538,11 +1570,6 @@
   font-size: 12px;
 }
 
-.arena-stage.compact .clash-outcome-card {
-  padding: 10px 14px;
-  gap: 4px;
-}
-
-.arena-stage.compact .outcome-icon {
-  font-size: 22px;
+.arena-stage.compact .final-score {
+  font-size: 40px;
 }

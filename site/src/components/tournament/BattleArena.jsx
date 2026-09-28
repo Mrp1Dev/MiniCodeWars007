@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { useDeterministicPlayback } from "./useDeterministicPlayback";
 import PixelArena from "./PixelArena";
 
@@ -11,6 +11,7 @@ export default function BattleArena({
   myParticipantId = null,
   isMirroring = false,
   mirrorTag = null,
+  onMatchComplete = null, // called with the match id once its playback has reached the end
 }) {
   const {
     started_at: startedAt,
@@ -42,6 +43,11 @@ export default function BattleArena({
     gamePauseMs: gamePauseMs || 2500,
     startHp,
   });
+
+  const matchId = match?.match_id ?? null;
+  useEffect(() => {
+    if (playback.isMatchComplete && matchId != null) onMatchComplete?.(matchId);
+  }, [playback.isMatchComplete, matchId, onMatchComplete]);
 
   if (!match) {
     return (
@@ -85,34 +91,37 @@ export default function BattleArena({
   const isP1Me = myParticipantId != null && match && Number(match.p1_id) === Number(myParticipantId);
   const isP2Me = myParticipantId != null && match && Number(match.p2_id) === Number(myParticipantId);
 
-  // Action event description
+  const tiebreakReason = match.draw_reason?.startsWith("tiebreak_")
+    ? match.draw_reason.replace("tiebreak_", "").replace(/_/g, " ")
+    : null;
+
+  // One plain line describing the current turn (or the result once the match is over).
   const events = currentTurn?.events || [];
+  const nameOf = (side) => (side === 0 ? match.p1_name : match.p2_name);
+  const move = (m) => String(m).toLowerCase();
   let eventText = "";
   if (isMatchComplete) {
-    if (winnerName) {
-      const reasonText = match.draw_reason?.startsWith("tiebreak_")
-        ? ` (Tiebreak: ${match.draw_reason.replace("tiebreak_", "").replace(/_/g, " ")})`
-        : "";
-      eventText = `🏆 Match complete! ${winnerName} claims victory${reasonText}.`;
-    }
-  } else if (events.length > 0) {
+    eventText = winnerName
+      ? `${winnerName} wins ${Math.max(p1Score, p2Score)}–${Math.min(p1Score, p2Score)}${tiebreakReason ? `, on tiebreak (${tiebreakReason})` : ""}`
+      : "Match over";
+  } else if (currentTurn) {
+    let detail;
     const hits = events.filter((e) => e.type === "hit");
+    const ev = events[0];
     if (hits.length > 1) {
-      eventText = `💥 Mutual strike! Both agents trade blows for damage!`;
+      detail = "Both hit, −1 HP each";
+    } else if (ev?.type === "hit") {
+      detail = `${nameOf(ev.by)}'s ${move(ev.action)} hits, −${ev.damage} HP`;
+    } else if (ev?.type === "blocked") {
+      detail = `${nameOf(ev.by)}'s ${move(ev.action)} is blocked by ${move(ev.with)}`;
+    } else if (ev?.type === "reflected") {
+      detail = `${nameOf(ev.by)}'s ${move(ev.action)} is countered back`;
+    } else if (p1Move === p2Move) {
+      detail = `Both ${move(p1Move)}`;
     } else {
-      const ev = events[0];
-      if (ev.type === "hit") {
-        eventText = `${ev.by === 0 ? match.p1_name : match.p2_name}'s ${ev.action} connected for -${ev.damage} HP!`;
-      } else if (ev.type === "blocked") {
-        eventText = `${ev.by === 0 ? match.p1_name : match.p2_name}'s ${ev.action} was blocked by ${ev.with}!`;
-      } else if (ev.type === "reflected") {
-        eventText = `${ev.by === 0 ? match.p1_name : match.p2_name}'s ${ev.action} was COUNTERED and reflected back!`;
-      }
+      detail = `${match.p1_name} ${move(p1Move)}s, ${match.p2_name} ${move(p2Move)}s`;
     }
-  } else if (currentTurn?.turn === 1) {
-    eventText = "Match started! Agents engage in tactical combat.";
-  } else if (p1Move === "RELOAD" && p2Move === "RELOAD") {
-    eventText = "Both agents reload ammo and brace.";
+    eventText = `Turn ${currentTurn.turn} · ${detail}`;
   }
 
   return (
@@ -178,7 +187,7 @@ export default function BattleArena({
             <span className="combatant-side-tag">AGENT 001</span>
             {isMatchComplete && (
               <span className={`status-badge-pill ${p1Won ? "pill-winner" : "pill-loser"}`}>
-                {p1Won ? "👑 WINNER" : "DEFEATED"}
+                {p1Won ? "Won" : "Lost"}
               </span>
             )}
           </div>
@@ -189,15 +198,16 @@ export default function BattleArena({
             )}
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span className="combatant-bot-name">{match.p1_name}</span>
+              {p1Hp <= 0 && <span className="ko-tag">KO</span>}
               {isP1Me && <span className="you-pill">YOU</span>}
             </div>
           </div>
 
           <div className="meter-row">
             <div className="meter-label">
-              <span>Armor Integrity</span>
+              <span>HP</span>
               <span className={p1Hp <= 0 ? "hp-danger" : ""}>
-                {Math.max(0, p1Hp)} / {startHp} HP {p1Hp <= 0 ? "(KNOCKED OUT)" : ""}
+                {Math.max(0, p1Hp)} / {startHp}
               </span>
             </div>
             <div className="hp-bar-segments">
@@ -207,9 +217,10 @@ export default function BattleArena({
             </div>
           </div>
 
+          {!isMatchComplete && (
           <div className="meters-grid">
             <div className="meter-row">
-              <span className="meter-label">Ammo ({p1Ammo}/3)</span>
+              <span className="meter-label">Ammo</span>
               <div className="ammo-meter">
                 {[0, 1, 2].map((i) => (
                   <div key={i} className={`bullet-pip ${i < p1Ammo ? "active" : ""}`} />
@@ -218,7 +229,7 @@ export default function BattleArena({
             </div>
 
             <div className="meter-row">
-              <span className="meter-label">Shields ({p1Shields}/3)</span>
+              <span className="meter-label">Shields</span>
               <div className="shield-meter">
                 {[0, 1, 2].map((i) => (
                   <div key={i} className={`shield-pip ${i < p1Shields ? "active" : ""}`} />
@@ -226,33 +237,20 @@ export default function BattleArena({
               </div>
             </div>
           </div>
+          )}
         </div>
 
         {/* Center Clash HUD */}
         <div className="clash-center">
           {isMatchComplete ? (
-            <div className="clash-outcome-card">
-              <div className="outcome-icon">
-                🏆
+            <div className="clash-final">
+              <span className="final-label">Final</span>
+              <div className="final-score">
+                <span className={p1Won ? "lead" : ""}>{p1Score}</span>
+                <span className="final-dash">–</span>
+                <span className={p2Won ? "lead" : ""}>{p2Score}</span>
               </div>
-              <div className="outcome-title">
-                SERIES VICTORY
-              </div>
-              <div className="outcome-winner-name">
-                {winnerName} WINS!
-              </div>
-              <div className="outcome-rule-explanation">
-                {match.draw_reason?.startsWith("tiebreak_") ? (
-                  <>
-                    Regulation games tied ({p1Score} - {p2Score}).<br />
-                    Victorious via <strong>Tournament Merit Tiebreak: {match.draw_reason.replace("tiebreak_", "").replace(/_/g, " ")}</strong>.
-                  </>
-                ) : (
-                  <>
-                    Advances with <strong>{Math.max(p1Score, p2Score)} wins</strong> in the series.
-                  </>
-                )}
-              </div>
+              {tiebreakReason && <span className="final-note">Won on tiebreak: {tiebreakReason}</span>}
             </div>
           ) : (
             <>
@@ -273,11 +271,11 @@ export default function BattleArena({
               {(p1Damage > 0 || p2Damage > 0) && (
                 <div className="clash-damage-flyout">
                   {p1Damage > 0 && p2Damage > 0 ? (
-                    <span className="clash-dmg-mutual">💥 MUTUAL CLASH: Both took 1 DMG</span>
+                    <span className="clash-dmg-mutual">Both −1 HP</span>
                   ) : p1Damage > 0 ? (
-                    <span className="clash-dmg-p1">💥 {match.p1_name} took −{p1Damage} DMG</span>
+                    <span className="clash-dmg-p1">{match.p1_name} −{p1Damage} HP</span>
                   ) : (
-                    <span className="clash-dmg-p2">💥 {match.p2_name} took −{p2Damage} DMG</span>
+                    <span className="clash-dmg-p2">{match.p2_name} −{p2Damage} HP</span>
                   )}
                 </div>
               )}
@@ -290,7 +288,7 @@ export default function BattleArena({
           <div className="combatant-header-line">
             {isMatchComplete && (
               <span className={`status-badge-pill ${p2Won ? "pill-winner" : "pill-loser"}`}>
-                {p2Won ? "👑 WINNER" : "DEFEATED"}
+                {p2Won ? "Won" : "Lost"}
               </span>
             )}
             <span className="combatant-side-tag">AGENT 002</span>
@@ -302,6 +300,7 @@ export default function BattleArena({
             )}
             <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
               {isP2Me && <span className="you-pill">YOU</span>}
+              {p2Hp <= 0 && <span className="ko-tag">KO</span>}
               <span className="combatant-bot-name">{match.p2_name}</span>
             </div>
           </div>
@@ -309,9 +308,9 @@ export default function BattleArena({
           <div className="meter-row">
             <div className="meter-label">
               <span className={p2Hp <= 0 ? "hp-danger" : ""}>
-                {p2Hp <= 0 ? "(KNOCKED OUT) " : ""}{Math.max(0, p2Hp)} / {startHp} HP
+                {Math.max(0, p2Hp)} / {startHp}
               </span>
-              <span>Armor Integrity</span>
+              <span>HP</span>
             </div>
             <div className="hp-bar-segments">
               {Array.from({ length: startHp }).map((_, i) => (
@@ -320,9 +319,10 @@ export default function BattleArena({
             </div>
           </div>
 
+          {!isMatchComplete && (
           <div className="meters-grid">
             <div className="meter-row">
-              <span className="meter-label">Shields ({p2Shields}/3)</span>
+              <span className="meter-label">Shields</span>
               <div className="shield-meter">
                 {[0, 1, 2].map((i) => (
                   <div key={i} className={`shield-pip ${i < p2Shields ? "active" : ""}`} />
@@ -331,7 +331,7 @@ export default function BattleArena({
             </div>
 
             <div className="meter-row">
-              <span className="meter-label">Ammo ({p2Ammo}/3)</span>
+              <span className="meter-label">Ammo</span>
               <div className="ammo-meter">
                 {[0, 1, 2].map((i) => (
                   <div key={i} className={`bullet-pip ${i < p2Ammo ? "active" : ""}`} />
@@ -339,19 +339,13 @@ export default function BattleArena({
               </div>
             </div>
           </div>
+          )}
         </div>
       </div>
 
       {/* Commentary Footer */}
       <div className="arena-commentary">
-        <span style={{ fontWeight: 500, color: isMatchComplete ? "var(--t-gold-bright)" : undefined }}>
-          {eventText || "Tactical clash in progress..."}
-        </span>
-        {currentTurn && (
-          <span style={{ fontSize: "11px", color: "var(--t-faint)" }}>
-            Turn resolved in {currentTurn.ms?.[0] || 0}ms / {currentTurn.ms?.[1] || 0}ms
-          </span>
-        )}
+        <span className={isMatchComplete ? "commentary-final" : ""}>{eventText}</span>
       </div>
     </div>
   );

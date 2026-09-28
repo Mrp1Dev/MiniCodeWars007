@@ -1,6 +1,12 @@
 import React from "react";
 import { useDynamicTiers } from "./useDynamicTiers";
 
+const CUT = 32;
+const ELITE = 8;
+
+// Two columns, filled top-to-bottom first so ranks read down the left column, then the right.
+const columnRows = (count) => Math.max(1, Math.ceil(count / 2));
+
 export default function TierBoard({
   tiers,
   roundNumber,
@@ -15,23 +21,31 @@ export default function TierBoard({
     fallbackTiers: tiers,
   });
 
-  const { tier1 = [], tier2 = [], tier3 = [] } = dynamicTiers || {};
+  const { tier1 = [], tier2 = [], tier3 = [], bubble = [] } = dynamicTiers || {};
+  const top32 = [...tier1, ...tier2, ...tier3].sort((a, b) => a.rank - b.rank);
 
   const renderDelta = (delta) => {
-    if (!delta || delta === 0) return <span className="tier-delta same">-</span>;
-    if (delta > 0) return <span className="tier-delta up">▲+{delta}</span>;
-    return <span className="tier-delta down">▼{Math.abs(delta)}</span>;
+    if (!delta) return null;
+    if (delta > 0) return <span className="tier-delta up" title={`Up ${delta}`}>▲</span>;
+    return <span className="tier-delta down" title={`Down ${Math.abs(delta)}`}>▼</span>;
   };
 
   const renderBot = (b) => (
     <div
       key={b.participant_id}
-      className={`tier-bot-item ${b.just_finished ? "just-updated" : ""} ${b.is_battling ? "in-battle" : ""}`}
-      title={b.bot_name}
+      className={`tier-bot-item ${b.rank <= ELITE ? "elite" : ""} ${b.just_finished ? "just-updated" : ""} ${b.is_battling ? "in-battle" : ""}`}
+      title={b.is_battling ? `${b.bot_name} · duel in progress` : b.bot_name}
     >
+      <span className="tier-bot-rank">{b.rank}</span>
       <span className="tier-bot-name">{b.bot_name}</span>
-      {b.is_battling && <span className="battling-pulse" title="Duel in progress">● IN BATTLE</span>}
-      {renderDelta(b.delta)}
+      {b.is_battling && <span className="battling-dot" aria-label="Duel in progress" />}
+      <span className="tier-delta-slot">{renderDelta(b.delta)}</span>
+    </div>
+  );
+
+  const renderGrid = (bots, rows) => (
+    <div className="tier-grid-2col" style={{ gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))` }}>
+      {bots.map(renderBot)}
     </div>
   );
 
@@ -40,7 +54,9 @@ export default function TierBoard({
       <div className="tier-board-header">
         <div>
           <span className="tier-board-title">Top 32 Cut Line</span>
-          <span className="tier-board-sub">Current Provisional Contenders</span>
+          <span className="tier-board-sub">
+            <span className="elite-key" /> Elite 8
+          </span>
         </div>
         <span className="tier-board-meta">
           {roundNumber > 0 ? `Swiss Round ${roundNumber}` : "Ready Room"}
@@ -48,56 +64,22 @@ export default function TierBoard({
       </div>
 
       <div className="tier-board-scroll no-scroll">
-        {/* Tier 1: Elite */}
-        <div className="tier-group tier-group-1">
-          <div className="tier-group-header">
-            <span>Tier 1 · Elite</span>
-            <span className="tier-badge-star">★ PROVISIONAL CUT</span>
-          </div>
-          <div className="tier-grid-2col">
-            {tier1.length === 0 ? (
-              <div className="faint center grid-span-2" style={{ padding: "6px", fontSize: "11px" }}>
-                Pending Round 1 results
-              </div>
-            ) : (
-              tier1.map((b) => renderBot(b))
-            )}
-          </div>
+        <div className="tier-group" style={{ flexGrow: columnRows(CUT) }}>
+          {top32.length === 0 ? (
+            <div className="tier-empty">Pending Round 1 results</div>
+          ) : (
+            renderGrid(top32, columnRows(top32.length))
+          )}
         </div>
 
-        {/* Tier 2: Contenders */}
-        <div className="tier-group tier-group-2">
-          <div className="tier-group-header">
-            <span>Tier 2 · Contenders</span>
-            <span>◆ ACTIVE FIELD</span>
+        {bubble.length > 0 && (
+          <div className="tier-group tier-group-bubble" style={{ flexGrow: columnRows(bubble.length) }}>
+            <div className="tier-cut-line">
+              <span>Cut · Top 32</span>
+            </div>
+            {renderGrid(bubble, columnRows(bubble.length))}
           </div>
-          <div className="tier-grid-2col">
-            {tier2.length === 0 ? (
-              <div className="faint center grid-span-2" style={{ padding: "6px", fontSize: "11px" }}>
-                Pending Round 1 results
-              </div>
-            ) : (
-              tier2.map((b) => renderBot(b))
-            )}
-          </div>
-        </div>
-
-        {/* Tier 3: Challengers */}
-        <div className="tier-group tier-group-3">
-          <div className="tier-group-header">
-            <span>Tier 3 · Challengers</span>
-            <span>▲ THE BUBBLE</span>
-          </div>
-          <div className="tier-grid-2col">
-            {tier3.length === 0 ? (
-              <div className="faint center grid-span-2" style={{ padding: "6px", fontSize: "11px" }}>
-                Pending Round 1 results
-              </div>
-            ) : (
-              tier3.map((b) => renderBot(b))
-            )}
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );

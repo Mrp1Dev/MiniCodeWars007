@@ -169,7 +169,7 @@ export default function BigScreen({ onExit }) {
       )}
 
       {/* Main Content Router */}
-      <main className={`screen-content ${stage === "ready_room" || isCut || isChampion ? "full-width" : ""}`}>
+      <main className={`screen-content ${stage === "ready_room" || isCut || isChampion ? "full-width" : ""} ${isSwiss ? "swiss" : ""}`}>
        <ScreenErrorBoundary version={version}>
         {/* Pre-tournament Ready Room */}
         {stage === "ready_room" && (

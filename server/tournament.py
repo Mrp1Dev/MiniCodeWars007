@@ -34,6 +34,7 @@ CFG = load_config(settings.CONFIG_PATH)
 
 SWISS_ROUNDS = 8
 TOP_CUT_COUNT = 32
+BUBBLE_COUNT = 4  # bots shown just below the cut line on the big screen
 
 # Stages
 STAGE_READY = "ready_room"
@@ -1773,13 +1774,16 @@ def _build_screen_payload() -> Dict[str, Any]:
     stage = state["stage"]
     rnd = state["round_number"]
 
-    # 1. 3-Tier Board Standings (Top 32), with movement since the previous round
-    top32 = get_latest_standings()[:TOP_CUT_COUNT]
+    # 1. 3-Tier Board Standings (Top 32, plus the first few just below the cut),
+    #    with movement since the previous round
+    standings = get_latest_standings()
+    top32 = standings[:TOP_CUT_COUNT]
+    bubble = standings[TOP_CUT_COUNT:TOP_CUT_COUNT + BUBBLE_COUNT]
     shown_rnd = min(rnd, SWISS_ROUNDS)
     prev_rows: Dict[int, int] = {}
     if shown_rnd > 1:
         prev_rows = {r["participant_id"]: r["rank"] for r in _standings_rows(shown_rnd - 1)}
-    for s in top32:
+    for s in top32 + bubble:
         s["prev_rank"] = prev_rows.get(s["participant_id"], s["rank"])
         s["delta"] = s["prev_rank"] - s["rank"]
 
@@ -1828,6 +1832,7 @@ def _build_screen_payload() -> Dict[str, Any]:
             "tier2": [s for s in top32 if s["tier"] == 2],
             "tier3": [s for s in top32 if s["tier"] == 3],
             "total_top32": len(top32),
+            "bubble": bubble,
         },
         "base_standings": base_standings,
         "round_matches": round_matches,
@@ -1960,6 +1965,11 @@ def _build_participant_cache():
     else:
         # Swiss (swiss_1..6) or parallel Elimination (ro32, ro16)
         is_elim = stage in (STAGE_RO32, STAGE_RO16)
+        # The latest Swiss standings already include this round's result, so the page shows the
+        # standing from before the round until the participant's own match has played out.
+        prev_standings_map: Dict[int, Dict[str, Any]] = {}
+        if not is_elim and rnd > 1:
+            prev_standings_map = {s["participant_id"]: s for s in _standings_rows(rnd - 1)}
         round_matches = []
         with db.connect() as c:
             cur_round = c.execute("""
@@ -2029,6 +2039,7 @@ def _build_participant_cache():
                 "match": match_obj,
                 "is_mirroring": is_mirroring,
                 "my_standing": format_standing(s),
+                "prev_standing": format_standing(prev_standings_map.get(pid)),
                 "tiers": tiers,
                 "bracket": bracket,
                 "total_participants": total_p,
