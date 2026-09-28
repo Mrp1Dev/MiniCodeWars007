@@ -1532,8 +1532,26 @@
 }
 
 .pixel-arena {
+  position: relative;
   overflow: hidden;
 }
+
+.pixel-arena-sound {
+  position: absolute;
+  right: clamp(14px, 1.4vw, 28px);
+  bottom: 8px;
+  padding: 2px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  background: rgba(5, 7, 11, 0.55);
+  color: #e8ecf4;
+  font-size: 14px;
+  line-height: 1.4;
+  cursor: pointer;
+  opacity: 0.45;
+  transition: opacity 0.2s;
+}
+.pixel-arena-sound:hover, .pixel-arena-sound:focus-visible { opacity: 1; }
 
 .pixel-arena canvas {
   display: block;

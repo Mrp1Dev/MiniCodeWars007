@@ -130,6 +130,12 @@ mirrored for agent 2 and turned red for COUNTER. COUNTER uses the shield pose to
 jerks forward and turns red. An enemy pistol shot reaching the red shield flies back red into the shooter; a sniper shot
 just stops. For the `shield` pose, `pivot` is the hand holding the pistol and `muzzle` its tip pointing down.
 
+Sound effects (`duelSounds.js`) are synthesised in the browser: gunshots and ricochets off the shield, plus quieter
+reloads, shield casts and falls. They're on by default on the Big Screen and off on participants' laptops; the speaker
+button in the corner of the duel toggles them. Browsers only play sound after the page has been clicked once, so click
+the Big Screen after opening it. A turn lasts `TURN_MS` (1400 ms) in `server/tournament.py`: the moves play out over the first 0.8 s (`ANIM_MS` in
+`PixelArena.jsx`) and the rest is a pause before the next move, so raising `TURN_MS` lengthens the pause.
+
 ## API
 
 | Endpoint | Who | What |

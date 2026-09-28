@@ -187,6 +187,7 @@ export default function BigScreen({ onExit }) {
               status={status}
             />
             <BattleArena
+              sound
               match={data?.highlight}
               status={status}
               revealNames={false}
@@ -209,6 +210,7 @@ export default function BigScreen({ onExit }) {
               status={status}
             />
             <BattleArena
+              sound
               match={data?.highlight}
               status={status}
               revealNames={false}
@@ -226,6 +228,7 @@ export default function BigScreen({ onExit }) {
               status={status}
             />
             <BattleArena
+              sound
               match={data?.highlight}
               status={status}
               revealNames={true}

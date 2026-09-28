@@ -12,6 +12,7 @@ export default function BattleArena({
   isMirroring = false,
   mirrorTag = null,
   onMatchComplete = null, // called with the match id once its playback has reached the end
+  sound = false, // duel sound effects start on (the Big Screen); viewers can toggle them
 }) {
   const {
     started_at: startedAt,
@@ -39,7 +40,7 @@ export default function BattleArena({
     turnStep: turnStep ?? -1,
     games: match?.games || EMPTY,
     matchId: match?.match_id ?? null,
-    turnMs: turnMs || 750,
+    turnMs: turnMs || 1400,
     gamePauseMs: gamePauseMs || 2500,
     startHp,
   });
@@ -177,6 +178,8 @@ export default function BattleArena({
         winnerSide={match.winner_id == null ? null : match.winner_id === match.p1_id ? 0 : 1}
         matchId={match.match_id}
         isBye={Boolean(match.is_bye)}
+        turnMs={turnMs || 1400}
+        sound={sound}
       />
 
       {/* Stats and move badges */}

@@ -87,7 +87,7 @@ SEED_PAIRS = [
 ]
 
 # Timing constants for playback
-TURN_MS = 750
+TURN_MS = 1400  # how long a turn lasts on the Big Screen: 0.8s of moves, then a 0.6s pause
 GAME_PAUSE_MS = 2500
 MATCH_END_PAUSE_MS = 5000
 # Spec: a parallel round should take roughly 40-50s. The marquee duel sets the round's length,
