@@ -5,3 +5,4 @@ __pycache__/
 *.pyc
 # built from site/ by `npm run build`
 web/
+stress_testing/

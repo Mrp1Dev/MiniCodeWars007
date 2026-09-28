@@ -72,6 +72,13 @@ class Parsing(unittest.TestCase):
         self.assertEqual(r.issues[0]["quote"], "if front guy has no shield left")
         self.assertEqual(r.code, "")
 
+    def test_declined_recovers_missing_reason_tags(self):
+        raw = "<status>declined</status>\n<issue><quote></quote>This isn't an attempt at describing a bot.</issue>"
+        r = ai.parse(raw)
+        self.assertEqual(r.status, "declined")
+        self.assertEqual(len(r.issues), 1)
+        self.assertEqual(r.issues[0]["reason"], "This isn't an attempt at describing a bot.")
+
     def test_garbage(self):
         self.assertEqual(ai.parse("Sure! Here's a great bot: ...").status, "error")
         self.assertEqual(ai.parse("<status>declined</status>").status, "error", "declined without issues")

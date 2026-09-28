@@ -279,9 +279,16 @@ def parse(text):
         if code.strip():
             return CleanResult("ok", code=code)
     if status == "declined":
-        issues = [{"quote": _tag("quote", block).strip(), "reason": _tag("reason", block).strip()}
-                  for block in re.findall(r"<issue>(.*?)</issue>", text, re.S)]
-        issues = [i for i in issues if i["reason"]][:3]
+        issues = []
+        for block in re.findall(r"<issue>(.*?)</issue>", text, re.S):
+            quote = _tag("quote", block).strip()
+            if "<reason>" in block:
+                reason = _tag("reason", block).strip()
+            else:
+                reason = re.sub(r"<quote>.*?</quote>", "", block, flags=re.S).strip()
+            if reason:
+                issues.append({"quote": quote, "reason": reason})
+        issues = issues[:3]
         if issues:
             return CleanResult("declined", issues=issues)
     return CleanResult("error", message=UNREADABLE)
