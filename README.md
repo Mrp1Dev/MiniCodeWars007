@@ -16,7 +16,7 @@ Both players start with 3 HP, 0 ammo and 3 shield charges. Every turn, each play
 
 An invalid move (not enough ammo, no shield charges left, a typo, a crash) becomes a **FUMBLE**: you do nothing, you're vulnerable, and your shields don't refill.
 
-The game ends at 0 HP, or after 25 turns. Tiebreaks, in order: HP → ammo → damage dealt → draw.
+The game ends at 0 HP, or after 25 turns (40 in the tournament's semi-finals and final). Tiebreaks, in order: HP → ammo → damage dealt → draw.
 
 All numbers are in [config.toml](config.toml).
 

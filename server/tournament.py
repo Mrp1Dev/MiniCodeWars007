@@ -63,20 +63,23 @@ ROUND_NUMBERS = {
 }
 
 
+LONG_MATCH_ROUNDS = 40  # turn limit for the semi-finals and the final (more HP needs more turns)
+
+
 def get_stage_cfg(stage: str) -> Config:
-    """Returns the game Config for a given stage, applying the +2 HP and +3 HP twists."""
+    """Returns the game Config for a given stage, applying the +2 HP and +3 HP twists
+    and the longer turn limit of the semi-finals and the final."""
     base_hp = CFG.start_hp
     if stage == STAGE_FINALS:
         hp = base_hp + 3  # Grand Finale Boss Fight (+3 HP -> 8 HP)
     elif stage in STAGE_RO4:
         hp = base_hp + 2  # Semi-Finals Endurance (+2 HP -> 7 HP)
     else:
-        hp = base_hp
-    if hp == base_hp:
         return CFG
     raw = copy.deepcopy(CFG.raw)
     raw["game"]["start_hp"] = hp
-    return dataclasses.replace(CFG, start_hp=hp, raw=raw)
+    raw["game"]["max_rounds"] = LONG_MATCH_ROUNDS
+    return dataclasses.replace(CFG, start_hp=hp, max_rounds=LONG_MATCH_ROUNDS, raw=raw)
 
 # Standard 32-player seeding: 1 and 2 can only meet in the final.
 SEED_PAIRS = [
