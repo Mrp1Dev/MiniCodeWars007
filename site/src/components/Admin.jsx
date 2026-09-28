@@ -218,7 +218,7 @@ export default function Admin({ onExit }) {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(entries, null, 2));
     const a = document.createElement("a");
     a.setAttribute("href", dataStr);
-    a.setAttribute("download", `minicodewars_entries_${new Date().toISOString().slice(0, 10)}.json`);
+    a.setAttribute("download", `quickdraw_entries_${new Date().toISOString().slice(0, 10)}.json`);
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -331,7 +331,7 @@ export default function Admin({ onExit }) {
         <div className="admin-header-brand">
           <Barrel size={22} />
           <span className="admin-brand-title">
-            MCW 007 <span className="faint">/</span> Host Admin
+            007 Quickdraw <span className="faint">/</span> Host Admin
           </span>
           <span className={`admin-badge badge-${phase}`}>
             {phase === "coding" && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "currentColor" }} />}

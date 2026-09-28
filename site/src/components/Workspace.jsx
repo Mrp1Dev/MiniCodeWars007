@@ -335,7 +335,7 @@ export default function Workspace({ me, status, offline, refreshStatus, refreshM
           <img src="/logo.png" alt="WnCC" />
           <span className="brand-sep" />
           <span className="brand-007">007</span>
-          <span className="brand-name">Code Wars</span>
+          <span className="brand-name">Quickdraw</span>
         </div>
 
         <div className="mission">

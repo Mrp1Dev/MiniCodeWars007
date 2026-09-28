@@ -1,4 +1,4 @@
-"""MiniCodeWars backend.
+"""007 Quickdraw backend.
 
 Run:  .venv/Scripts/python -m server            (http://0.0.0.0:8000, docs at /docs)
 
@@ -50,7 +50,7 @@ def _admin_key():
 
 ADMIN_KEY = _admin_key()
 
-app = FastAPI(title="MiniCodeWars 007", version="1")
+app = FastAPI(title="007 Quickdraw", version="1")
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(
     CORSMiddleware,

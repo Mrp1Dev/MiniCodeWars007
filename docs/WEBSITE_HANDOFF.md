@@ -1,4 +1,4 @@
-# Website handoff: participant site for MiniCodeWars 007
+# Website handoff: participant site for 007 Quickdraw
 
 > The participant site is now built (`site/`, see the README's "Website" section). This doc is still the API reference.
 

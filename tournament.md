@@ -1,6 +1,6 @@
-# MiniCodeWars 007: Tournament Specification
+# 007 Quickdraw: Tournament Specification
 
-This document outlines the requirements and architecture for the **MiniCodeWars 007 Tournament System**. It is designed to give the implementer clear constraints and high-level goals while leaving architectural and design freedom to build the best solution.
+This document outlines the requirements and architecture for the **007 Quickdraw Tournament System**. It is designed to give the implementer clear constraints and high-level goals while leaving architectural and design freedom to build the best solution.
 
 ---
 

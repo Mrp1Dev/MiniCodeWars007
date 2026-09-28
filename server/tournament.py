@@ -1,4 +1,4 @@
-"""MiniCodeWars 007 Tournament Engine.
+"""007 Quickdraw Tournament Engine.
 
 Implements the tournament system specification (tournament.md):
 - Swiss stage (6 rounds): score-bracket pairing, no rematches (backtracking), at most one bye each

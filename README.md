@@ -1,6 +1,6 @@
-# MiniCodeWars: 007
+# 007 Quickdraw
 
-Bot-vs-bot game engine for the WnCC IITB orientation code-wars event.
+Bot-vs-bot game engine for the WnCC IITB orientation coding event.
 
 ## Rules
 

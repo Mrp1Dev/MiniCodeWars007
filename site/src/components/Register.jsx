@@ -41,7 +41,7 @@ export default function Register({ status, onDone }) {
         <img src="/logo.png" alt="WnCC" className="signin-logo" />
         <div className="signin-title">
           <span className="signin-007">007</span>
-          <span className="signin-sub">Code Wars</span>
+          <span className="signin-sub">Quickdraw</span>
         </div>
         <p className="signin-lede">
           Write a bot. Five moves, three lives, one winner. Test it against our practice bots, then send it into the

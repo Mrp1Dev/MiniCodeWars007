@@ -249,7 +249,7 @@ export default function BigScreen({ onExit }) {
               })()}
             </div>
             <p className="faint" style={{ fontSize: "16px", maxWidth: "600px" }}>
-              Congratulations to the champion of MiniCodeWars 007! Winner of the grand prize and undisputed 007 agent.
+              Congratulations to the champion of 007 Quickdraw! Winner of the grand prize and undisputed 007 agent.
             </p>
           </div>
         )}

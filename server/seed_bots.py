@@ -1,4 +1,4 @@
-"""Mock participant and bot generator for MiniCodeWars 007 testing.
+"""Mock participant and bot generator for 007 Quickdraw testing.
 
 Generates realistic 007-themed participants with diverse working strategies:
 - Snipers, Counter-punchers, Turtles, Aggressors, Smart predictors, Balanced agents
@@ -230,7 +230,7 @@ def clear_mock_participants():
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Seed mock bots for MiniCodeWars 007")
+    parser = argparse.ArgumentParser(description="Seed mock bots for 007 Quickdraw")
     parser.add_argument("--count", type=int, default=64, help="Number of bots to generate (e.g. 32, 64, 128, 400)")
     parser.add_argument("--clear", action="store_true", help="Clear all generated mock bots")
     args = parser.parse_args()
