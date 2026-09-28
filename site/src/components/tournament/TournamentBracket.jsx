@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { describeTiebreak } from "./tiebreak";
 
 const STAGE_ORDER = [
   "ro32",
@@ -13,11 +14,36 @@ const STAGE_ORDER = [
   "champion",
 ];
 
+const ROUNDS = [
+  { key: "ro32", title: "Round of 32", count: 16 },
+  { key: "ro16", title: "Round of 16", count: 8 },
+  { key: "ro8", title: "Quarter-finals", count: 4 },
+  { key: "ro4", title: "Semi-finals", count: 2 },
+  { key: "finals", title: "Final", count: 1 },
+];
+
+function stageIdxOf(roundKey, matchIdx) {
+  if (roundKey === "ro32") return 0;
+  if (roundKey === "ro16") return 1;
+  if (roundKey === "ro8") return 2 + matchIdx;
+  if (roundKey === "ro4") return 6 + matchIdx;
+  if (roundKey === "finals") return 8;
+  return -1;
+}
+
+function isActiveNode(roundKey, matchIdx, activeStage) {
+  if (roundKey === "ro32" || roundKey === "ro16" || roundKey === "finals") return activeStage === roundKey;
+  return activeStage === `${roundKey}_m${matchIdx + 1}`;
+}
+
 export default function TournamentBracket({
   bracket = {},
   activeStage = "",
   revealNames = false,
   status = {},
+  className = "",
+  collapsed = false,
+  onToggle = null, // when given, the bracket can fold into a slim rail to give the duel the room
 }) {
   const [now, setNow] = useState(Date.now());
 
@@ -50,243 +76,168 @@ export default function TournamentBracket({
     elapsedMs = Math.max(0, playedSec * 1000);
   }
 
-  const ro32 = Array.isArray(bracket) ? bracket.slice(0, 16) : (bracket.ro32 || []);
-  const ro16 = bracket.ro16 || [];
-  const ro8 = bracket.ro8 || [];
-  const ro4 = bracket.ro4 || [];
-  const finals = bracket.finals || [];
+  const b = bracket || {};
+  const matchesOf = {
+    ro32: Array.isArray(b) ? b.slice(0, 16) : (b.ro32 || []),
+    ro16: b.ro16 || [],
+    ro8: b.ro8 || [],
+    ro4: b.ro4 || [],
+    finals: b.finals || [],
+  };
 
   const currentStageIdx = STAGE_ORDER.indexOf(activeStage);
 
-  const getStageIdx = (roundStage, matchIdx) => {
-    if (roundStage === "ro32") return 0;
-    if (roundStage === "ro16") return 1;
-    if (roundStage === "ro8") return 2 + matchIdx;
-    if (roundStage === "ro4") return 6 + matchIdx;
-    if (roundStage === "finals") return 8;
-    return -1;
-  };
+  /** What the audience may see of a match right now: never a result before it has played out. */
+  const matchView = (m, roundKey, matchIdx) => {
+    const roundStageIdx = stageIdxOf(roundKey, matchIdx);
+    const isPast = currentStageIdx > roundStageIdx || activeStage === "champion";
+    const isCurrent = currentStageIdx === roundStageIdx;
+    const parallel = roundKey === "ro32" || roundKey === "ro16";
+    const view = { scores: ["", ""], done: false, live: false, winner: null };
 
-  const formatTiebreak = (reason) => {
-    if (!reason) return { tag: "TB", desc: "Advanced via Elimination Tiebreak" };
-    if (reason.includes("elim_damage") || reason.includes("damage")) return { tag: "TB:DMG", desc: "Tiebreak: Highest Total In-Match Damage Dealt" };
-    if (reason.includes("elim_hp") || reason.includes("hp")) return { tag: "TB:HP", desc: "Tiebreak: Highest Total Remaining HP" };
-    if (reason.includes("elim_fumbles") || reason.includes("fumble")) return { tag: "TB:FUM", desc: "Tiebreak: Fewest Fumbles" };
-    if (reason.includes("swiss_seed")) return { tag: "TB:SEED", desc: "Tiebreak: Higher Swiss Final Seeding" };
-    if (reason.includes("match_wins")) return { tag: "TB:WINS", desc: "Tiebreak: Swiss Stage Match Record" };
-    if (reason.includes("buchholz")) return { tag: "TB:BUCH", desc: "Tiebreak: Buchholz Strength of Schedule" };
-    if (reason.includes("sonneborn")) return { tag: "TB:SONN", desc: "Tiebreak: Sonneborn-Berger Score" };
-    if (reason.includes("net_games")) return { tag: "TB:DIFF", desc: "Tiebreak: Net Game Differential" };
-    if (reason.includes("game_wins")) return { tag: "TB:GWINS", desc: "Tiebreak: Total Game Wins" };
-    if (reason.includes("h2h")) return { tag: "TB:H2H", desc: "Tiebreak: Head-to-Head Victor" };
-    if (reason.includes("ko_turns")) return { tag: "TB:SPD", desc: "Tiebreak: Fastest Knockout Speed" };
-    return { tag: "TB", desc: "Tiebreak: Deterministic Seed Hash" };
-  };
-
-  const renderSlot = (participant, score, isWinner, isLoser, defaultLabel, tbBadge, tbTitle) => {
-    let name = defaultLabel;
-    if (participant) {
-      if (revealNames && participant.name) {
-        name = `${participant.bot_name} (${participant.name})`;
+    if (isPast) {
+      view.done = Boolean(m?.is_complete || m?.winner_id);
+      view.scores = [m?.score?.[0] ?? "", m?.score?.[1] ?? ""];
+    } else if (isCurrent && turnStep >= 0 && !parallel) {
+      // The host is stepping this match turn by turn; the arena shows it, the bracket waits.
+      view.live = true;
+    } else if (isCurrent) {
+      if (m?.timeline?.length) {
+        const played = m.timeline.filter((t) => t.finish_ms <= elapsedMs);
+        view.scores = played.length ? played[played.length - 1].score : [0, 0];
+        view.done = elapsedMs >= m.finish_ms;
+        view.live = !view.done;
+      } else if (m?.is_complete) {
+        view.scores = m.score || [0, 0];
+        view.done = true;
       } else {
-        name = participant.bot_name;
+        view.live = Boolean(m?.p1 || m?.p2);
       }
     }
+    if (view.done) {
+      view.winner = m?.winner_id === m?.p1?.participant_id ? 0 : m?.winner_id === m?.p2?.participant_id ? 1 : null;
+    }
+    return view;
+  };
 
-    const scoreDisplay = score !== undefined && score !== null ? score : "-";
-
+  const renderSlot = (participant, side, view, placeholder, tb) => {
+    const won = view.winner === side;
+    const lost = view.winner === 1 - side;
     return (
-      <div className={`bracket-slot ${isWinner ? "winner" : (isLoser ? "loser" : "")}`}>
-        <span className="bracket-slot-name" title={name}>
-          {participant?.seed ? <span className="bracket-seed">#{participant.seed} </span> : null}
-          {name}
+      <div className={`bk-slot ${won ? "is-win" : ""} ${lost ? "is-lose" : ""} ${participant ? "" : "is-empty"}`}>
+        <span className="bk-seed">{participant?.seed ?? ""}</span>
+        <span className="bk-name">
+          <span className="bk-bot" title={participant?.bot_name}>{participant ? participant.bot_name : placeholder}</span>
+          {revealNames && participant?.name && <span className="bk-real">{participant.name}</span>}
         </span>
-        <span className="bracket-slot-score" title={tbTitle || undefined}>
-          {scoreDisplay}
-          {isWinner && tbBadge ? (
-            <span className="bracket-tb-badge" title={tbTitle}>
-              {tbBadge}
-            </span>
-          ) : null}
-        </span>
+        {/* A drawn duel has no winning score to show; the winner gets a tiebreak mark instead. */}
+        <span className="bk-score">{tb ? (won ? <span className="bk-tb">TB</span> : "") : view.scores[side]}</span>
       </div>
     );
   };
 
-  const renderMatchNode = (m, roundStage, matchIdx, defaultP1, defaultP2) => {
-    const p1 = m?.p1;
-    const p2 = m?.p2;
-
-    const roundStageIdx = getStageIdx(roundStage, matchIdx);
-    const isPastRound = currentStageIdx > roundStageIdx;
-    const isCurrentRound = currentStageIdx === roundStageIdx;
-    const isFutureRound = currentStageIdx < roundStageIdx;
-
-    let p1Score = "-";
-    let p2Score = "-";
-    let isCompleted = false;
-    let p1Won = false;
-    let p2Won = false;
-
-    if (isPastRound || activeStage === "champion") {
-      // Completed in an earlier stage or tournament finished
-      isCompleted = Boolean(m?.is_complete || m?.winner_id);
-      p1Score = m?.score?.[0] ?? "-";
-      p2Score = m?.score?.[1] ?? "-";
-      p1Won = isCompleted && m?.winner_id === p1?.participant_id;
-      p2Won = isCompleted && m?.winner_id === p2?.participant_id;
-    } else if (isCurrentRound && turnStep >= 0 && roundStage !== "ro32" && roundStage !== "ro16") {
-      // The host is stepping this match turn by turn; the arena shows the score, the bracket waits.
-      p1Score = "·";
-      p2Score = "·";
-    } else if (isCurrentRound) {
-      // Actively playing! Calculate live progressive score from timeline without spoilers
-      if (m?.timeline && m.timeline.length > 0) {
-        const completedGames = m.timeline.filter((t) => t.finish_ms <= elapsedMs);
-        if (completedGames.length === 0) {
-          p1Score = 0;
-          p2Score = 0;
-          isCompleted = false;
-        } else {
-          const latest = completedGames[completedGames.length - 1];
-          p1Score = latest.score[0];
-          p2Score = latest.score[1];
-          if (elapsedMs >= m.finish_ms) {
-            isCompleted = true;
-            p1Won = m.winner_id === p1?.participant_id;
-            p2Won = m.winner_id === p2?.participant_id;
-          }
-        }
-      } else if (m?.is_complete) {
-        p1Score = m.score?.[0] ?? 0;
-        p2Score = m.score?.[1] ?? 0;
-        isCompleted = true;
-        p1Won = m.winner_id === p1?.participant_id;
-        p2Won = m.winner_id === p2?.participant_id;
-      } else {
-        p1Score = 0;
-        p2Score = 0;
-      }
-    } else {
-      // Future match
-      p1Score = "-";
-      p2Score = "-";
-      isCompleted = false;
-    }
-
-    // Determine active match highlighting
-    let isActive = false;
-    if (roundStage === "ro32" && activeStage === "ro32") isActive = true;
-    else if (roundStage === "ro16" && activeStage === "ro16") isActive = true;
-    else if (roundStage === "ro8" && activeStage === `ro8_m${matchIdx + 1}`) isActive = true;
-    else if (roundStage === "ro4" && activeStage === `ro4_m${matchIdx + 1}`) isActive = true;
-    else if (roundStage === "finals" && activeStage === "finals") isActive = true;
-
-    // Detect if match regulation ended tied and winner was determined via tiebreaker
-    let tbInfo = null;
-    if (isCompleted && p1Score === p2Score && m?.draw_reason) {
-      tbInfo = formatTiebreak(m?.draw_reason);
-    }
+  const renderMatch = (m, round, matchIdx) => {
+    const view = matchView(m, round.key, matchIdx);
+    const active = isActiveNode(round.key, matchIdx, activeStage) && round.count <= 4;
+    const tb = view.done && view.scores[0] === view.scores[1] ? describeTiebreak(m?.draw_reason) : null;
+    const hasEntrants = Boolean(m?.p1 || m?.p2);
+    // Later rounds stay blank until their entrants are known; the connectors show where they come from.
+    const placeholder = (i) => (round.key === "ro32" ? `Seed ${i === 0 ? m?.seed1 ?? "" : m?.seed2 ?? ""}` : "");
+    const byeLabel = m?.is_bye && view.done ? "Bye" : placeholder(1);
 
     return (
       <div
-        key={`${roundStage}-${matchIdx}`}
-        className={`bracket-match-node ${isActive ? "active-match" : ""} ${isCompleted ? "completed-match" : ""}`}
+        key={`${round.key}-${matchIdx}`}
+        className={`bk-cell ${view.done ? "is-done" : ""} ${hasEntrants ? "has-entrants" : ""}`}
       >
-        {renderSlot(
-          p1,
-          p1Score,
-          p1Won,
-          p2Won,
-          defaultP1,
-          p1Won && tbInfo ? tbInfo.tag : null,
-          p1Won && tbInfo ? tbInfo.desc : null
-        )}
-        {renderSlot(
-          p2,
-          p2Score,
-          p2Won,
-          p1Won,
-          m?.is_bye && isCompleted ? "BYE" : defaultP2,
-          p2Won && tbInfo ? tbInfo.tag : null,
-          p2Won && tbInfo ? tbInfo.desc : null
-        )}
+        <div
+          className={`bk-match ${active ? "is-active" : ""} ${view.live ? "is-live" : ""} ${view.done ? "is-done" : ""}`}
+          title={tb ? `Drawn duel, won on tiebreak: ${tb.text}` : undefined}
+        >
+          {renderSlot(m?.p1, 0, view, placeholder(0), tb)}
+          {renderSlot(m?.p2, 1, view, byeLabel, tb)}
+          {/* The later rounds have room to say which tiebreak decided it */}
+          {tb && round.count <= 4 && <span className="bk-caption">Tiebreak · {tb.tag}</span>}
+        </div>
       </div>
     );
   };
 
+  const anyTiebreak = ROUNDS.some((r) =>
+    matchesOf[r.key].some((m, i) => {
+      const v = matchView(m, r.key, i);
+      return v.done && v.scores[0] === v.scores[1] && m?.draw_reason;
+    })
+  );
+
+  const currentRound = ROUNDS.find((r) => {
+    const first = stageIdxOf(r.key, 0);
+    return currentStageIdx >= first && currentStageIdx <= stageIdxOf(r.key, r.count - 1);
+  });
+
+  if (collapsed) {
+    const decided = currentRound
+      ? matchesOf[currentRound.key].filter((m, i) => matchView(m, currentRound.key, i).done).length
+      : 0;
+    return (
+      <section className={`bracket is-collapsed ${className}`}>
+        <button className="bk-toggle" onClick={onToggle} title="Show the bracket (B)">
+          <span aria-hidden="true">›</span>
+        </button>
+        <div className="bk-rail">
+          <span className="bk-rail-title">Bracket</span>
+          {currentRound && (
+            <>
+              <span className="bk-rail-round">{currentRound.title}</span>
+              {currentRound.count > 1 && (
+                <span className="bk-rail-count"><b>{decided}</b>/{currentRound.count} decided</span>
+              )}
+            </>
+          )}
+        </div>
+      </section>
+    );
+  }
+
   return (
-    <div className="bracket-container">
-      {/* Round of 32 */}
-      <div className="bracket-round">
-        <div className="bracket-round-title">ROUND OF 32</div>
-        {ro32.map((m, idx) =>
-          renderMatchNode(
-            m,
-            "ro32",
-            idx,
-            `Seed ${m.seed1 || idx * 2 + 1}`,
-            `Seed ${m.seed2 || idx * 2 + 2}`
-          )
+    <section className={`bracket ${revealNames ? "reveal-names" : ""} ${className}`}>
+      {onToggle && (
+        <button className="bk-toggle" onClick={onToggle} title="Fold the bracket away (B)">
+          <span aria-hidden="true">‹</span>
+        </button>
+      )}
+      <div className="bk-heads">
+        {ROUNDS.map((r) => {
+          const idx = stageIdxOf(r.key, 0);
+          const lastIdx = stageIdxOf(r.key, r.count - 1);
+          const now = currentStageIdx >= idx && currentStageIdx <= lastIdx;
+          const done = currentStageIdx > lastIdx;
+          return (
+            <div key={r.key} className={`bk-head ${now ? "is-now" : ""} ${done ? "is-done" : ""}`}>
+              {now && <span className="bk-head-dot" />}
+              {r.title}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="bk-body">
+        {ROUNDS.map((r) => (
+          <div key={r.key} className={`bk-col bk-col-${r.key}`}>
+            {Array.from({ length: r.count }).map((_, i) => renderMatch(matchesOf[r.key][i], r, i))}
+          </div>
+        ))}
+      </div>
+
+      <footer className="bk-foot">
+        {anyTiebreak ? (
+          <span>
+            <span className="bk-tb">TB</span> Drawn duel, decided by tiebreak: more damage in the duel → more HP left → fewer fumbles → Swiss-stage merit
+          </span>
+        ) : (
+          <span>Single-game knockout · the winner advances</span>
         )}
-      </div>
-
-      {/* Round of 16 */}
-      <div className="bracket-round">
-        <div className="bracket-round-title">ROUND OF 16</div>
-        {Array.from({ length: 8 }).map((_, idx) => {
-          const m = ro16[idx];
-          return renderMatchNode(
-            m,
-            "ro16",
-            idx,
-            `Winner M${idx * 2 + 1}`,
-            `Winner M${idx * 2 + 2}`
-          );
-        })}
-      </div>
-
-      {/* Quarter-Finals (Elite 8) */}
-      <div className="bracket-round">
-        <div className="bracket-round-title gold-title">QUARTER-FINALS</div>
-        {Array.from({ length: 4 }).map((_, idx) => {
-          const m = ro8[idx];
-          return renderMatchNode(
-            m,
-            "ro8",
-            idx,
-            `Winner R16-${idx * 2 + 1}`,
-            `Winner R16-${idx * 2 + 2}`
-          );
-        })}
-      </div>
-
-      {/* Semi-Finals (Final 4) */}
-      <div className="bracket-round">
-        <div className="bracket-round-title gold-title">SEMI-FINALS</div>
-        {Array.from({ length: 2 }).map((_, idx) => {
-          const m = ro4[idx];
-          return renderMatchNode(
-            m,
-            "ro4",
-            idx,
-            `Winner QF-${idx * 2 + 1}`,
-            `Winner QF-${idx * 2 + 2}`
-          );
-        })}
-      </div>
-
-      {/* Grand Finale */}
-      <div className="bracket-round">
-        <div className="bracket-round-title finale-title">GRAND FINALE</div>
-        {renderMatchNode(
-          finals[0],
-          "finals",
-          0,
-          "Winner SF-1",
-          "Winner SF-2"
-        )}
-      </div>
-    </div>
+      </footer>
+    </section>
   );
 }

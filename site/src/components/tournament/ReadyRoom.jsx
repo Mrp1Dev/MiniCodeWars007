@@ -1,23 +1,26 @@
 import React from "react";
 
-export default function ReadyRoom({ totalParticipants = 0 }) {
+export default function ReadyRoom({ totalParticipants = 0, swissRounds = 8 }) {
   return (
-    <div className="ready-room">
-      <div className="ready-scanner">
+    <section className="ready-room">
+      <div className="ready-scanner" aria-hidden="true">
         <div className="ready-scanner-ring" />
-        <div className="ready-scanner-ring" style={{ animationDuration: "8s", width: "160px", height: "160px", margin: "30px" }} />
-        <img src="/logo.png" alt="WnCC" style={{ height: "48px", opacity: 0.85, filter: "drop-shadow(0 0 12px rgba(201,169,97,0.5))" }} />
+        <div className="ready-scanner-ring inner" />
+        <img src="/logo.png" alt="" className="ready-logo" />
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "center" }}>
-        <h1 className="ready-title">AGENT ASSEMBLY</h1>
-        <div className="ready-counter">
-          {totalParticipants} AGENTS READY IN THE ARENA
-        </div>
-        <p className="faint" style={{ maxWidth: "480px", margin: "10px 0 0", fontSize: "14px" }}>
-          All submissions locked. The Swiss Stage begins shortly. 6 Swiss rounds · Best of 5 matches · Top 32 cut.
-        </p>
+      <span className="bs-eyebrow">Submissions locked</span>
+      <h1 className="ready-title">Agent Assembly</h1>
+      <div className="ready-count">
+        <b>{totalParticipants}</b>
+        <span>agents in the arena</span>
       </div>
-    </div>
+
+      <ol className="ready-steps">
+        <li><b>{swissRounds}</b> Swiss rounds<small>everyone plays every round</small></li>
+        <li><b>32</b> make the cut<small>seeded into a knockout bracket</small></li>
+        <li><b>1</b> champion<small>names revealed from the quarter-finals</small></li>
+      </ol>
+    </section>
   );
 }

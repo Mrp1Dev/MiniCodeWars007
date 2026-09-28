@@ -48,8 +48,8 @@ function liveTiers(baseStandings, roundMatches, elapsedMs) {
       if (p1) p1.match_losses += 1;
     }
     if (!m.is_bye && elapsedMs - m.finish_ms < FLARE_MS) {
-      if (p1) p1.just_finished = true;
-      if (p2) p2.just_finished = true;
+      if (p1) Object.assign(p1, { just_finished: true, just_won: m.winner_id === m.p1_id });
+      if (p2) Object.assign(p2, { just_finished: true, just_won: m.winner_id === m.p2_id });
     }
   }
 

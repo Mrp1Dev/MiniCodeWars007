@@ -91,7 +91,7 @@ export function useDeterministicPlayback({
   turnStep = -1,
   games = [],
   matchId = null,
-  turnMs = 750,
+  turnMs = 1400,
   gamePauseMs = 2500,
   startHp = 5,
   isCompleted = false,

@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { api } from "../../api";
+import React, { useEffect, useRef, useState } from "react";
+import { api, storage } from "../../api";
 import BattleArena from "./BattleArena";
 import TierBoard from "./TierBoard";
 import ReadyRoom from "./ReadyRoom";
@@ -31,8 +31,9 @@ class ScreenErrorBoundary extends React.Component {
   render() {
     if (this.state.failedAt) {
       return (
-        <div className="cut-ceremony-container" style={{ textAlign: "center" }}>
-          <div className="cut-banner">STAND BY</div>
+        <div className="bs-hold">
+          <span className="bs-eyebrow">Transmission</span>
+          <div className="bs-hold-title">Stand by</div>
         </div>
       );
     }
@@ -41,12 +42,96 @@ class ScreenErrorBoundary extends React.Component {
 }
 
 const POLL_MS = 1500;
+const BRACKET_KEY = "mcw.screen.bracketCollapsed";
+const CONTROLS_IDLE_MS = 2500;
+
+/** Eyebrow + title for the top bar, and where the stage sits on the progress rail. */
+function stageInfo(stage, totalSwiss) {
+  const n = (prefix) => stage.slice(prefix.length);
+  if (stage.startsWith("swiss_")) return { eyebrow: "Swiss stage", title: `Round ${n("swiss_")} of ${totalSwiss}` };
+  if (stage.startsWith("intermission_")) return { eyebrow: "Swiss stage", title: `Round ${n("intermission_")} complete` };
+  if (stage === "cut_ceremony") return { eyebrow: "Swiss stage complete", title: "The Top 32" };
+  if (stage === "ro32") return { eyebrow: "Knockout", title: "Round of 32" };
+  if (stage === "ro16") return { eyebrow: "Knockout", title: "Round of 16" };
+  if (stage.startsWith("ro8_")) return { eyebrow: "Quarter-finals", title: `Match ${n("ro8_m")} of 4` };
+  if (stage.startsWith("ro4_")) return { eyebrow: "Semi-finals", title: `Match ${n("ro4_m")} of 2` };
+  if (stage === "finals") return { eyebrow: "Grand final", title: "For the championship" };
+  if (stage === "champion") return { eyebrow: "Tournament complete", title: "Champion crowned" };
+  return { eyebrow: "MiniCodeWars 007", title: "Agents assembling" };
+}
+
+const KNOCKOUT_STEPS = [
+  { label: "Cut", match: (s) => s === "cut_ceremony" },
+  { label: "R32", match: (s) => s === "ro32" },
+  { label: "R16", match: (s) => s === "ro16" },
+  { label: "QF", match: (s) => s.startsWith("ro8_") },
+  { label: "SF", match: (s) => s.startsWith("ro4_") },
+  { label: "Final", match: (s) => s === "finals" },
+];
+
+/** The whole show at a glance: Swiss rounds as dots, then the knockout steps. */
+function StageRail({ stage, totalSwiss }) {
+  const swissRound = stage.startsWith("swiss_") || stage.startsWith("intermission_")
+    ? Number(stage.replace(/^\D+/, "")) || 0
+    : 0;
+  const koIdx = KNOCKOUT_STEPS.findIndex((k) => k.match(stage));
+  const swissDone = stage !== "ready_room" && swissRound === 0;
+  const allDone = stage === "champion";
+  const state = (i) => (allDone || (koIdx >= 0 && i < koIdx) ? "done" : i === koIdx ? "now" : "");
+
+  return (
+    <div className="bs-rail" aria-label="Tournament progress">
+      <div className="bs-rail-group">
+        <span className={`bs-rail-label ${swissRound ? "now" : swissDone ? "done" : ""}`}>Swiss</span>
+        <div className="bs-rail-dots">
+          {Array.from({ length: totalSwiss }).map((_, i) => (
+            <i
+              key={i}
+              className={swissDone || i + 1 < swissRound ? "done" : i + 1 === swissRound ? "now" : ""}
+            />
+          ))}
+        </div>
+      </div>
+      {KNOCKOUT_STEPS.map((k, i) => (
+        <React.Fragment key={k.label}>
+          <span className={`bs-rail-sep ${state(i)}`} />
+          <span className={`bs-rail-label ${state(i)}`}>{k.label}</span>
+        </React.Fragment>
+      ))}
+    </div>
+  );
+}
+
+function ChampionView({ match }) {
+  if (!match) return <div className="bs-hold"><div className="bs-hold-title">Champion crowned</div></div>;
+  const side = match.winner_id === match.p2_id ? "p2" : "p1";
+  const other = side === "p1" ? "p2" : "p1";
+  const bot = match[`${side}_name`];
+  const real = match[`${side}_real_name`];
+  const runnerUp = match[`${other}_real_name`] || match[`${other}_name`];
+
+  return (
+    <div className="bs-champion">
+      <div className="bs-champion-rings" aria-hidden="true" />
+      <span className="bs-eyebrow">MiniCodeWars 007 · Champion</span>
+      <div className="bs-champion-name">{real || bot}</div>
+      {real && <div className="bs-champion-bot">{bot}</div>}
+      <div className="bs-champion-rule" />
+      {runnerUp && match[`${other}_name`] !== "BYE" && (
+        <p className="bs-champion-note">Defeated {runnerUp} in the grand final</p>
+      )}
+    </div>
+  );
+}
 
 export default function BigScreen({ onExit }) {
   const [data, setData] = useState(null);
   const [version, setVersion] = useState(0);
   const [offline, setOffline] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [controlsShown, setControlsShown] = useState(true);
+  const [bracketCollapsed, setBracketCollapsed] = useState(() => storage.get(BRACKET_KEY) === "1");
+  const idleTimer = useRef(null);
 
   // Poll the Big Screen endpoint. One request at a time, so a slow response can never
   // land after a newer one and rewind the screen.
@@ -79,6 +164,35 @@ export default function BigScreen({ onExit }) {
     return () => document.removeEventListener("fullscreenchange", sync);
   }, []);
 
+  // The buttons (and cursor) stay out of the projected picture unless the mouse moves.
+  useEffect(() => {
+    const wake = () => {
+      setControlsShown(true);
+      clearTimeout(idleTimer.current);
+      idleTimer.current = setTimeout(() => setControlsShown(false), CONTROLS_IDLE_MS);
+    };
+    wake();
+    window.addEventListener("mousemove", wake);
+    window.addEventListener("keydown", wake);
+    return () => {
+      window.removeEventListener("mousemove", wake);
+      window.removeEventListener("keydown", wake);
+      clearTimeout(idleTimer.current);
+    };
+  }, []);
+
+  const toggleBracket = () => setBracketCollapsed((c) => !c);
+  useEffect(() => storage.set(BRACKET_KEY, bracketCollapsed ? "1" : "0"), [bracketCollapsed]);
+
+  // B folds the knockout bracket away (or back) without reaching for the mouse.
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.key === "b" || e.key === "B") && !e.ctrlKey && !e.metaKey && !e.altKey) toggleBracket();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
       document.documentElement.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => {});
@@ -89,6 +203,7 @@ export default function BigScreen({ onExit }) {
 
   const status = data?.status || {};
   const stage = status.stage || "ready_room";
+  const totalSwiss = status.swiss_rounds || 8;
   // Host turn-stepping pauses the clock too, but that's showmanship, not an announcement.
   const paused = Boolean(status.paused) && (status.turn_step ?? -1) < 0;
   const isSwiss = stage.startsWith("swiss_") || stage.startsWith("intermission_");
@@ -96,71 +211,40 @@ export default function BigScreen({ onExit }) {
   const isElimination = stage === "ro32" || stage === "ro16";
   const isSequentialFinals = stage.startsWith("ro8_") || stage.startsWith("ro4_") || stage === "finals";
   const isChampion = stage === "champion";
+  const { eyebrow, title } = stageInfo(stage, totalSwiss);
 
-  const getStageTitle = () => {
-    if (stage === "ready_room") return "STAGE 0: READY ROOM";
-    if (stage.startsWith("swiss_")) {
-      const rnd = stage.replace("swiss_", "");
-      const totalSwiss = status?.swiss_rounds || 8;
-      return `SWISS STAGE · ROUND ${rnd} OF ${totalSwiss}`;
-    }
-    if (stage.startsWith("intermission_")) {
-      const rnd = stage.replace("intermission_", "");
-      return `SWISS ROUND ${rnd} COMPLETE · TIERS UPDATED`;
-    }
-    if (stage === "cut_ceremony") return "ACT 1 CONCLUDED · THE TOP 32 CUT";
-    if (stage === "ro32") return "SINGLE ELIMINATION · ROUND OF 32 (1V1)";
-    if (stage === "ro16") return "SINGLE ELIMINATION · ROUND OF 16 (1V1)";
-    if (stage.startsWith("ro8_")) {
-      const m = stage.replace("ro8_m", "");
-      return `QUARTER-FINALS · MATCH ${m} OF 4 (1V1)`;
-    }
-    if (stage.startsWith("ro4_")) {
-      const m = stage.replace("ro4_m", "");
-      return `SEMI-FINALS · MATCH ${m} OF 2 (7 HP 1V1)`;
-    }
-    if (stage === "finals") return "GRAND FINALE · WORLD CHAMPIONSHIP (8 HP 1V1)";
-    if (stage === "champion") return "TOURNAMENT CHAMPION CROWNED";
-    return stage.toUpperCase();
-  };
+  const layout = isSwiss
+    ? "layout-swiss"
+    : isElimination || isSequentialFinals
+      ? `layout-bracket ${bracketCollapsed ? "is-collapsed" : ""}`
+      : "layout-full";
 
   return (
-    <div className="tournament-screen">
+    <div className={`tournament-screen big-screen ${controlsShown ? "" : "is-idle"}`}>
       <div className="screen-rings" aria-hidden="true" />
 
-      {/* Top Navigation HUD */}
-      <header className="screen-topbar">
-        <div className="screen-brand">
-          <img src="/logo.png" alt="WnCC" className="screen-brand-logo" />
-          <span className="screen-brand-sep" />
-          <span className="screen-brand-007">007</span>
-          <span className="screen-brand-label">TOURNAMENT ARENA</span>
+      <header className="bs-topbar">
+        <div className="bs-brand">
+          <img src="/logo.png" alt="WnCC" className="bs-brand-logo" />
+          <span className="bs-brand-sep" />
+          <span className="bs-brand-007">007</span>
+          <span className="bs-brand-label">Code Wars</span>
         </div>
 
-        <div className="screen-center-stage">
-          <div className="stage-badge">
-            <span className="stage-badge-dot" />
-            <span>{getStageTitle()}</span>
-          </div>
+        <div className="bs-stage" key={stage}>
+          <span className="bs-eyebrow">
+            <span className={`bs-live-dot ${paused ? "is-paused" : ""}`} />
+            {eyebrow}
+          </span>
+          <span className="bs-stage-title">{title}</span>
         </div>
 
-        <div className="screen-controls">
-          <button className="screen-btn" onClick={toggleFullscreen} title="Fullscreen mode">
-            {isFullscreen ? "Exit Fullscreen" : "Fullscreen (F11)"}
-          </button>
-          {offline && (
-            <span className="screen-btn" title="Can't reach the server; retrying" style={{ color: "var(--t-muted)" }}>
-              Reconnecting…
-            </span>
-          )}
-          {onExit && (
-            <button className="screen-btn" onClick={onExit} title="Return to workspace">
-              Exit
-            </button>
-          )}
+        <div className="bs-topbar-right">
+          <StageRail stage={stage} totalSwiss={totalSwiss} />
         </div>
       </header>
 
+<<<<<<< Updated upstream
       {/* Emergency Pause Overlay Banner */}
       {paused && (
         <div className="screen-pause-banner">
@@ -174,8 +258,22 @@ export default function BigScreen({ onExit }) {
         {/* Pre-tournament Ready Room */}
         {stage === "ready_room" && (
           <ReadyRoom totalParticipants={data?.total_participants || 0} />
+=======
+      {/* Outside the header: its backdrop-filter would trap position: fixed */}
+      <div className="bs-controls">
+        {offline && <span className="bs-offline"><span className="spinner" /> Reconnecting</span>}
+        <button className="bs-btn" onClick={toggleFullscreen} title="Fullscreen (F11)">
+          {isFullscreen ? "Exit fullscreen" : "Fullscreen"}
+        </button>
+        {onExit && (
+          <button className="bs-btn" onClick={onExit} title="Return to workspace">
+            Exit
+          </button>
+>>>>>>> Stashed changes
         )}
+      </div>
 
+<<<<<<< Updated upstream
         {/* Swiss Stage (Rounds 1-8 + Intermissions): Top 32 Board on Left + Center Arena on Right */}
         {isSwiss && (
           <>
@@ -193,52 +291,56 @@ export default function BigScreen({ onExit }) {
             />
           </>
         )}
+=======
+      <main className={`bs-content ${layout}`}>
+        <ScreenErrorBoundary version={version}>
+          {stage === "ready_room" && (
+            <ReadyRoom totalParticipants={data?.total_participants || 0} swissRounds={totalSwiss} />
+          )}
+>>>>>>> Stashed changes
 
-        {/* Top 32 Cut Ceremony */}
-        {isCut && (
-          <CutCeremony tiers={data?.tiers} />
-        )}
+          {/* Swiss: live tier board beside the marquee duel. Bot names only. */}
+          {isSwiss && (
+            <>
+              <TierBoard
+                tiers={data?.tiers}
+                baseStandings={data?.base_standings}
+                roundMatches={data?.round_matches}
+                status={status}
+                totalParticipants={data?.total_participants || 0}
+              />
+              <BattleArena match={data?.highlight} status={status} sound revealNames={false} />
+            </>
+          )}
 
-        {/* Elimination Ro32 & Ro16: Left Bracket + Center Highlight Duel */}
-        {isElimination && (
-          <>
-            <TournamentBracket
-              bracket={data?.bracket}
-              activeStage={stage}
-              revealNames={false}
-              status={status}
-            />
-            <BattleArena
-              match={data?.highlight}
-              status={status}
-              revealNames={false}
-            />
-          </>
-        )}
+          {isCut && <CutCeremony tiers={data?.tiers} swissRounds={totalSwiss} />}
 
-        {/* Sequential Finals (Ro8, Ro4, Finals): Bracket Left + Full Arena with Real Names Revealed */}
-        {isSequentialFinals && (
-          <>
-            <TournamentBracket
-              bracket={data?.bracket}
-              activeStage={stage}
-              revealNames={true}
-              status={status}
-            />
-            <BattleArena
-              match={data?.highlight}
-              status={status}
-              revealNames={true}
-            />
-          </>
-        )}
+          {/* Knockout: the bracket beside the duel. Real names from the quarter-finals on. */}
+          {(isElimination || isSequentialFinals) && (
+            <>
+              <TournamentBracket
+                bracket={data?.bracket}
+                activeStage={stage}
+                revealNames={isSequentialFinals}
+                status={status}
+                collapsed={bracketCollapsed}
+                onToggle={toggleBracket}
+              />
+              <BattleArena match={data?.highlight} status={status} sound revealNames={isSequentialFinals} />
+            </>
+          )}
 
-        {/* Champion Victory Screen */}
-        {isChampion && (
-          <div className="cut-ceremony-container" style={{ textAlign: "center", gap: 30 }}>
-            <div className="cut-banner" style={{ fontSize: "52px" }}>
-              🏆 TOURNAMENT CHAMPION 🏆
+          {isChampion && <ChampionView match={data?.highlight} />}
+        </ScreenErrorBoundary>
+
+        {paused && (
+          <div className="bs-pause" role="status">
+            <div className="bs-pause-card">
+              <span className="bs-eyebrow">Playback paused</span>
+              <div className="bs-pause-title">Stand by</div>
+              <p>An announcement from the organisers. The duels resume exactly where they stopped.</p>
             </div>
+<<<<<<< Updated upstream
             <div className="ready-counter" style={{ fontSize: "28px", padding: "12px 36px" }}>
               {(() => {
                 const h = data?.highlight;
@@ -251,9 +353,10 @@ export default function BigScreen({ onExit }) {
             <p className="faint" style={{ fontSize: "16px", maxWidth: "600px" }}>
               Congratulations to the champion of 007 Quickdraw! Winner of the grand prize and undisputed 007 agent.
             </p>
+=======
+>>>>>>> Stashed changes
           </div>
         )}
-       </ScreenErrorBoundary>
       </main>
     </div>
   );
