@@ -1649,9 +1649,12 @@
    PIXEL-ART DUEL SCENE
    ========================================================================== */
 
+/* Sized only by the space it's given (flex-basis 0, canvas out of flow), so the canvas can
+   be fitted to it without the two pushing each other around. */
 .pixel-arena {
-  flex: 1 1 auto;
+  flex: 1 1 0;
   min-height: 0;
+  min-width: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1679,9 +1682,14 @@
 .pixel-arena-sound:hover, .pixel-arena-sound:focus-visible { opacity: 1; }
 
 .pixel-arena canvas {
+  position: absolute;
+  inset: 0;
+  margin: auto;
   display: block;
-  width: 100%; /* replaced by a whole-number scale once measured */
+  width: 100%; /* replaced by the fitted size once measured */
   height: 100%;
+  max-width: 100%;
+  max-height: 100%;
   object-fit: contain;
   image-rendering: pixelated;
   image-rendering: crisp-edges;

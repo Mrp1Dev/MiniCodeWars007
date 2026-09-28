@@ -1608,14 +1608,19 @@ export default function PixelArena({ playback, names, winnerSide, matchId, isBye
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  // Scale by a whole number so every art pixel is the same size on the projector.
+  // Scale by a whole number so every art pixel is the same size, unless that would leave a
+  // lot of the box empty (e.g. just under 3x falls back to 2x): then fill the box instead.
   useEffect(() => {
     const box = boxRef.current;
     const canvas = canvasRef.current;
     if (!box || !canvas || typeof ResizeObserver === "undefined") return undefined;
     const fit = () => {
-      const k = Math.min(box.clientWidth / W, box.clientHeight / H);
-      const scale = k >= 1 ? Math.floor(k) : k;
+      const cs = getComputedStyle(box);
+      const innerW = box.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      const innerH = box.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+      const k = Math.min(innerW / W, innerH / H);
+      const whole = Math.floor(k);
+      const scale = whole >= 1 && whole / k >= 0.85 ? whole : k;
       canvas.style.width = `${Math.floor(W * scale)}px`;
       canvas.style.height = `${Math.floor(H * scale)}px`;
     };
