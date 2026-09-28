@@ -235,6 +235,7 @@ class SubmitBody(BaseModel):
 class PhaseBody(BaseModel):
     phase: Literal[PHASES]
     minutes: Optional[float] = Field(default=None, gt=0, le=600, description="timer length, for the coding phase")
+    reset_tournament: bool = Field(default=False, description="with phase=tournament: start from a fresh Ready Room")
 
 
 class ExtendBody(BaseModel):
@@ -493,6 +494,11 @@ async def clean(body: CleanBody, p=Depends(participant)):
 def set_phase(body: PhaseBody):
     ends_at = time.time() + body.minutes * 60 if body.phase == "coding" and body.minutes else None
     db.set_event(phase=body.phase, ends_at=ends_at)
+    # The tournament keeps its own stage. Going back to registration starts the event over, so it
+    # also clears every tournament result; otherwise a test run's Round 1 roster would stay frozen
+    # in and lock real participants out of later rounds.
+    if body.phase == "registration" or (body.phase == "tournament" and body.reset_tournament):
+        tournament.start_tournament()
     return status()
 
 
@@ -617,6 +623,8 @@ def admin_tournament_start():
 
 @app.post("/api/admin/tournament/advance", dependencies=[Depends(admin)])
 def admin_tournament_advance(body: TournAdvanceBody = TournAdvanceBody()):
+    if db.get_event()["phase"] != "tournament":
+        raise HTTPException(400, "Switch the event to the Tournament phase (Phase Management) before launching rounds.")
     try:
         return tournament.advance_stage(body.target_stage)
     except ValueError as e:

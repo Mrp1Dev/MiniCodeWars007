@@ -140,10 +140,32 @@ export default function Admin({ onExit }) {
       if (phase === "coding" && minutes) {
         body.minutes = Number(minutes);
       }
+
+      // The tournament keeps its own stage; check it before phases that reset or reuse it.
+      if (phase === "registration" || phase === "tournament") {
+        const stage = await adminApi("/api/tournament/status").then((s) => s.stage).catch(() => null);
+        const inProgress = stage && stage !== "ready_room";
+        if (phase === "registration" && inProgress && !window.confirm(
+          `Resetting to Registration also resets the tournament to the Ready Room and deletes all of its results (it's at ${stage.toUpperCase()}).\n\nContinue?`
+        )) return;
+        if (phase === "tournament" && inProgress) {
+          if (window.confirm(
+            `The tournament already has results (it's at ${stage.toUpperCase()}).\n\n` +
+            "OK: start a fresh tournament from the Ready Room (deletes those results).\n" +
+            "Cancel: keep them (you'll be asked to confirm)."
+          )) {
+            body.reset_tournament = true;
+          } else if (!window.confirm(`Continue to the Tournament phase and keep the existing progress at ${stage.toUpperCase()}?`)) {
+            return;
+          }
+        }
+      }
+
       await adminApi("/api/admin/phase", { body });
       refreshStatus();
       loadDashboardData();
-      notify(`Phase changed to ${phase.toUpperCase()}${minutes ? ` (${minutes}m)` : ""}`, "success");
+      const resetNote = phase === "registration" || body.reset_tournament ? " · tournament reset to Ready Room" : "";
+      notify(`Phase changed to ${phase.toUpperCase()}${minutes ? ` (${minutes}m)` : ""}${resetNote}`, "success");
     } catch (err) {
       notify(err.message, "bad");
     }
@@ -991,7 +1013,7 @@ export default function Admin({ onExit }) {
         )}
 
         {/* TAB 4: TOURNAMENT */}
-        {tab === "tournament" && <AdminTournament notify={notify} />}
+        {tab === "tournament" && <AdminTournament notify={notify} eventPhase={phase} />}
       </main>
 
 

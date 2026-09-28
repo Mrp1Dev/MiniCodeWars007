@@ -1250,6 +1250,9 @@ def _start_prefetch():
             job.result = _compute_stage(nxt, job.cancel)
         except _Cancelled as e:
             job.error = e
+        except ValueError as e:  # expected, e.g. nobody has submitted yet; advancing reports it
+            logger.info("not prefetching %s: %s", nxt, e)
+            job.error = e
         except Exception as e:  # advancing computes it again and reports the error to the host
             logger.exception("prefetching %s failed", nxt)
             job.error = e
@@ -1963,7 +1966,7 @@ def _build_participant_cache():
             }
 
     else:
-        # Swiss (swiss_1..6) or parallel Elimination (ro32, ro16)
+        # Swiss (swiss_1..8) or parallel Elimination (ro32, ro16)
         is_elim = stage in (STAGE_RO32, STAGE_RO16)
         # The latest Swiss standings already include this round's result, so the page shows the
         # standing from before the round until the participant's own match has played out.

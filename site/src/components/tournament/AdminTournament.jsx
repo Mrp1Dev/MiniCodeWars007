@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { adminApi } from "../../api";
 import { IconAlert, IconCheck, IconPlay, IconRefresh } from "../icons";
 
-export default function AdminTournament({ notify }) {
+export default function AdminTournament({ notify, eventPhase }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [advancing, setAdvancing] = useState(false);
@@ -29,6 +29,8 @@ export default function AdminTournament({ notify }) {
   const stage = status.stage || "ready_room";
   const paused = status.paused || false;
   const turnStep = status.turn_step ?? -1;
+  // The server only launches rounds in the Tournament phase.
+  const inTournamentPhase = eventPhase === "tournament";
 
   const handleStart = async () => {
     if (!window.confirm("WARNING: Are you sure you want to reset the entire tournament back to the Ready Room? This will clear all tournament progress and matches.")) {
@@ -229,21 +231,28 @@ export default function AdminTournament({ notify }) {
           Trigger stage transitions, compute parallel matches across worker threads, and push updates to all student screens.
         </p>
 
+        {!inTournamentPhase && (
+          <div className="note note-bad" style={{ marginBottom: 12 }}>
+            The event is in the {String(eventPhase || "").toUpperCase()} phase. Switch it to Tournament in Phase
+            Management (top of this page) before launching rounds.
+          </div>
+        )}
+
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           {stage === "ready_room" ? (
             <button
               className="btn btn-gold"
               onClick={handleAdvance}
-              disabled={advancing}
+              disabled={advancing || !inTournamentPhase}
             >
               {advancing ? <span className="spinner" /> : <IconPlay size={16} />}
-              Launch Swiss Round 1 (Parallel Bo5)
+              Launch Swiss Round 1 (Parallel 1v1)
             </button>
           ) : (
             <button
               className="btn btn-gold"
               onClick={handleAdvance}
-              disabled={advancing || stage === "champion"}
+              disabled={advancing || stage === "champion" || !inTournamentPhase}
             >
               {advancing ? <span className="spinner" /> : <IconPlay size={16} />}
               {getNextActionLabel()}

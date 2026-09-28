@@ -176,7 +176,7 @@ export default function BigScreen({ onExit }) {
           <ReadyRoom totalParticipants={data?.total_participants || 0} />
         )}
 
-        {/* Swiss Stage (Rounds 1-6 + Intermissions): 3-Tier Board on Left + Center Arena on Right */}
+        {/* Swiss Stage (Rounds 1-8 + Intermissions): Top 32 Board on Left + Center Arena on Right */}
         {isSwiss && (
           <>
             <TierBoard

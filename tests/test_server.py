@@ -72,6 +72,48 @@ class Server(unittest.TestCase):
         self.assertEqual(st["phase"], "coding")
         self.assertEqual(self.c.post("/api/submit", json={"code": GOOD}, headers=auth).status_code, 200)
 
+    def test_tournament_follows_event_phase(self):
+        from server import tournament
+        self.phase("coding")
+        for roll in ("25B0001", "25B0002"):
+            auth = self.register(roll=roll, name=f"Person {roll}")
+            self.assertEqual(self.c.post("/api/submit", json={"code": GOOD}, headers=auth).status_code, 200)
+        tournament.start_tournament()
+
+        def advance():
+            return self.c.post("/api/admin/tournament/advance", json={}, headers=ADMIN)
+
+        def stage():
+            return self.c.get("/api/tournament/status").json()["stage"]
+
+        def matches():
+            with db.connect() as c:
+                return c.execute("SELECT COUNT(*) FROM tournament_matches").fetchone()[0]
+
+        # Rounds only launch in the Tournament phase.
+        r = advance()
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("Tournament phase", r.json()["detail"])
+        self.assertEqual(stage(), "ready_room")
+
+        self.phase("tournament")
+        self.assertEqual(advance().status_code, 200)
+        self.assertEqual(stage(), "swiss_1")
+
+        # Leaving and re-entering the Tournament phase keeps progress unless a reset is asked for.
+        self.phase("locked")
+        self.phase("tournament")
+        self.assertEqual(stage(), "swiss_1")
+        r = self.c.post("/api/admin/phase", json={"phase": "tournament", "reset_tournament": True}, headers=ADMIN)
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual((stage(), matches()), ("ready_room", 0))
+
+        # Back to registration starts the event over, tournament included.
+        self.assertEqual(advance().status_code, 200)
+        self.assertEqual(stage(), "swiss_1")
+        self.phase("registration")
+        self.assertEqual((stage(), matches()), ("ready_room", 0))
+
     def test_submit_statuses_and_entry(self):
         self.phase("coding")
         auth = self.register()
