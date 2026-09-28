@@ -113,6 +113,70 @@ class Cleaning(unittest.TestCase):
             ai.clean("x", FakeClient(ConnectionError("down")))
 
 
+class Timeout(Exception):
+    """Stands in for openai.APITimeoutError (matched by name)."""
+
+
+class Refused(Exception):
+    """Stands in for openai.AuthenticationError & co: carries the HTTP status."""
+    status_code = 401
+
+
+class BackupKey(unittest.TestCase):
+    """clean() without a client: the main key first, the backup key when that call fails."""
+
+    def setUp(self):
+        self.saved = (ai._client, ai._backup_client, ai._main_down_until, settings.AI_API_KEY_BACKUP)
+        ai._main_down_until = 0.0
+
+    def tearDown(self):
+        ai._client, ai._backup_client, ai._main_down_until, settings.AI_API_KEY_BACKUP = self.saved
+
+    def keys(self, main, backup):
+        ai._client, ai._backup_client = main, backup
+
+    def test_main_key_answers_first(self):
+        main, backup = FakeClient(OK_ANSWER), FakeClient(OK_ANSWER)
+        self.keys(main, backup)
+        r = ai.clean("reload forever")
+        self.assertEqual((r.status, r.key, len(main.calls), len(backup.calls)), ("ok", "main", 1, 0))
+
+    def test_backup_answers_when_main_fails(self):
+        main, backup = FakeClient(ConnectionError("down")), FakeClient(OK_ANSWER)
+        self.keys(main, backup)
+        r = ai.clean("reload forever")
+        self.assertEqual((r.status, r.key, len(main.calls), len(backup.calls)), ("ok", "backup", 1, 1))
+        self.assertEqual(ai.main_key_down_for(), 0, "a network error doesn't bench the main key")
+
+    def test_timeout_is_not_retried(self):
+        main, backup = FakeClient(Timeout("slow")), FakeClient(OK_ANSWER)
+        self.keys(main, backup)
+        with self.assertRaises(ai.AIUnavailable):
+            ai.clean("reload forever")
+        self.assertEqual(len(backup.calls), 0)
+
+    def test_both_keys_fail(self):
+        self.keys(FakeClient(ConnectionError("down")), FakeClient(ConnectionError("down too")))
+        with self.assertRaises(ai.AIUnavailable):
+            ai.clean("reload forever")
+
+    def test_no_backup_key(self):
+        settings.AI_API_KEY_BACKUP = None
+        self.keys(FakeClient(ConnectionError("down")), None)
+        with self.assertRaises(ai.AIUnavailable):
+            ai.clean("reload forever")
+
+    def test_refused_main_key_is_skipped_for_a_while(self):
+        main, backup = FakeClient(Refused("bad key"), OK_ANSWER), FakeClient(OK_ANSWER, OK_ANSWER)
+        self.keys(main, backup)
+        self.assertEqual(ai.clean("x").key, "backup")
+        self.assertGreater(ai.main_key_down_for(), ai.KEY_LOCKOUT_S - 5)
+        self.assertEqual(ai.clean("x").key, "backup", "goes straight to the backup")
+        self.assertEqual(len(main.calls), 1)
+        ai._main_down_until = 0.0  # the lockout has passed
+        self.assertEqual(ai.clean("x").key, "main")
+
+
 class Endpoint(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -130,11 +194,15 @@ class Endpoint(unittest.TestCase):
         app_module._ai_recent.clear()
         r = self.c.post("/api/register", json={"roll": "25B0009", "name": "AI Tester"})
         self.auth = {"Authorization": f"Bearer {r.json()['token']}"}
-        self.saved = (ai._client, settings.AI_PER_MINUTE, settings.AI_MAX_PER_PARTICIPANT,
+        self.saved = (ai._client, ai._backup_client, ai._main_down_until, settings.AI_API_KEY_BACKUP,
+                      settings.AI_PER_MINUTE, settings.AI_MAX_PER_PARTICIPANT,
                       settings.AI_TOKEN_BUDGET, settings.AI_TOKENS_PER_PARTICIPANT)
+        # No backup key unless a test sets one, so a real key in .env is never called.
+        ai._backup_client, ai._main_down_until, settings.AI_API_KEY_BACKUP = None, 0.0, None
 
     def tearDown(self):
-        (ai._client, settings.AI_PER_MINUTE, settings.AI_MAX_PER_PARTICIPANT,
+        (ai._client, ai._backup_client, ai._main_down_until, settings.AI_API_KEY_BACKUP,
+         settings.AI_PER_MINUTE, settings.AI_MAX_PER_PARTICIPANT,
          settings.AI_TOKEN_BUDGET, settings.AI_TOKENS_PER_PARTICIPANT) = self.saved
 
     def post(self, text="if i have no ammo reload else shoot"):
@@ -189,6 +257,18 @@ class Endpoint(unittest.TestCase):
         self.assertIn("budget", r.json()["detail"])
         usage = self.c.get("/api/admin/ai-usage", headers={"X-Admin-Key": "test-admin"}).json()
         self.assertEqual((usage["spent"], usage["budget"]), (100, settings.AI_TOKEN_BUDGET))
+
+    def test_backup_answer_is_logged(self):
+        ai._client, ai._backup_client = FakeClient(ConnectionError("down")), FakeClient(OK_ANSWER)
+        settings.AI_API_KEY_BACKUP = "backup-key"
+        r = self.post()
+        self.assertEqual((r.status_code, r.json()["status"]), (200, "ok"))
+        admin = {"X-Admin-Key": "test-admin"}
+        log = self.c.get("/api/admin/ai-requests", headers=admin).json()
+        self.assertEqual(log[0]["ai_key"], "backup")
+        usage = self.c.get("/api/admin/ai-usage", headers=admin).json()
+        self.assertEqual((usage["by_key"], usage["backup_key_configured"]), ({"backup": 1}, True))
+        self.assertNotIn("backup-key", r.text + str(log) + str(usage), "the key itself is never shown")
 
     def test_unavailable(self):
         ai._client = FakeClient(ConnectionError("down"))

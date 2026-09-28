@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS ai_requests (
     prompt_tokens      INTEGER NOT NULL DEFAULT 0,
     completion_tokens  INTEGER NOT NULL DEFAULT 0,
     ms                 INTEGER NOT NULL DEFAULT 0,
+    ai_key             TEXT,                -- which key answered: main | backup (never the key itself)
     created_at         REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ai_by_participant ON ai_requests(participant_id, id);
@@ -127,6 +128,9 @@ def connect():
                     conn.execute("ALTER TABLE participants ADD COLUMN bot_name TEXT")
                 if "kicked" not in cols:
                     conn.execute("ALTER TABLE participants ADD COLUMN kicked INTEGER NOT NULL DEFAULT 0")
+                ai_cols = [r["name"] for r in conn.execute("PRAGMA table_info(ai_requests)").fetchall()]
+                if "ai_key" not in ai_cols:
+                    conn.execute("ALTER TABLE ai_requests ADD COLUMN ai_key TEXT")
                 _initialised = True
         with conn:  # commits, or rolls back on error
             yield conn
@@ -246,12 +250,13 @@ def all_entries():
 
 # --- AI requests ---------------------------------------------------------------------
 
-def add_ai_request(participant_id, pseudocode, status, response, raw, prompt_tokens, completion_tokens, ms):
+def add_ai_request(participant_id, pseudocode, status, response, raw, prompt_tokens, completion_tokens, ms,
+                   ai_key=None):
     with connect() as c:
         c.execute("INSERT INTO ai_requests(participant_id, pseudocode, status, response, raw, prompt_tokens, "
-                  "completion_tokens, ms, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                  "completion_tokens, ms, ai_key, created_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                   (participant_id, pseudocode, status, json.dumps(response), raw, prompt_tokens,
-                   completion_tokens, ms, time.time()))
+                   completion_tokens, ms, ai_key, time.time()))
 
 
 _COST = "COALESCE(SUM(completion_tokens + prompt_tokens / 2.0), 0)"
@@ -279,7 +284,10 @@ def ai_usage():
                           "COALESCE(SUM(completion_tokens), 0) AS completion_tokens, "
                           f"COALESCE(AVG(ms), 0) AS avg_ms, {_COST} AS spent FROM ai_requests").fetchone()
         by_status = c.execute("SELECT status, COUNT(*) AS n FROM ai_requests GROUP BY status").fetchall()
-    return {**dict(total), "by_status": {r["status"]: r["n"] for r in by_status}}
+        by_key = c.execute("SELECT ai_key, COUNT(*) AS n FROM ai_requests WHERE ai_key IS NOT NULL "
+                           "GROUP BY ai_key").fetchall()
+    return {**dict(total), "by_status": {r["status"]: r["n"] for r in by_status},
+            "by_key": {r["ai_key"]: r["n"] for r in by_key}}
 
 
 def ai_requests(limit=100, status=None):

@@ -1013,7 +1013,21 @@ export default function Admin({ onExit }) {
                     </span>
                     <span className="admin-stat-label">Avg Latency</span>
                   </div>
+                  <div className="admin-stat-card">
+                    <span className="admin-stat-num" style={{ color: aiUsage.backup_key_configured ? undefined : "var(--faint)" }}>
+                      {aiUsage.backup_key_configured ? aiUsage.by_key?.backup || 0 : "Off"}
+                    </span>
+                    <span className="admin-stat-label">
+                      {aiUsage.backup_key_configured ? "Answered by backup key" : "No backup key set"}
+                    </span>
+                  </div>
                 </div>
+                {aiUsage.main_key_skipped_s > 0 && (
+                  <div className="note note-bad" style={{ marginTop: 12 }}>
+                    The main AI key was refused (invalid or out of credits), so requests are going to the
+                    backup key. The main key is tried first again in {Math.ceil(aiUsage.main_key_skipped_s / 60)} min.
+                  </div>
+                )}
               </div>
             )}
 
@@ -1064,6 +1078,11 @@ export default function Admin({ onExit }) {
                             <span className={`admin-badge badge-${req.status}`}>
                               {req.status}
                             </span>
+                            {req.ai_key === "backup" && (
+                              <span className="admin-badge" style={{ marginLeft: 6 }} title="Answered with the backup API key">
+                                backup
+                              </span>
+                            )}
                           </td>
                           <td className="faint">{req.ms ? `${req.ms} ms` : "--"}</td>
                           <td className="faint" style={{ fontFamily: "var(--mono)", fontSize: "12px" }}>

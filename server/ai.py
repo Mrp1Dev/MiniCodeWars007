@@ -9,6 +9,7 @@ Try the prompt against the real model:
   .venv/Scripts/python -m server.ai my_pseudocode.txt
   .venv/Scripts/python -m server.ai --examples
 """
+import logging
 import re
 import time
 from dataclasses import dataclass, field
@@ -19,6 +20,7 @@ from . import settings
 from .matches import CFG
 
 MAX_PSEUDOCODE_CHARS = 2000
+logger = logging.getLogger(__name__)
 
 
 def _rules_text(cfg):
@@ -205,13 +207,17 @@ class CleanResult:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     raw: str = ""                # model output, for the admin log
+    key: str = ""                # which API key answered: main | backup
 
     def public(self):
         return {"status": self.status, "code": self.code, "issues": self.issues, "message": self.message}
 
 
 class AIUnavailable(Exception):
-    pass
+    def __init__(self, message, timeout=False, key_rejected=False):
+        super().__init__(message)
+        self.timeout = timeout            # the call took too long; trying again would just wait again
+        self.key_rejected = key_rejected  # the key itself was refused (invalid, no credits, no access)
 
 
 def cost(prompt_tokens, completion_tokens):
@@ -225,18 +231,43 @@ def worst_case_cost(pseudocode):
     return cost((len(SYSTEM_PROMPT) + len(pseudocode)) / 3, settings.AI_MAX_TOKENS)
 
 
-_client = None
+# Two keys on the same service: every request uses the main key, and if that call fails (for any
+# reason but a timeout) it is retried once with the backup key. If the main key itself is refused
+# (invalid, out of credits), requests go to the backup first for KEY_LOCKOUT_S before trying it again.
+KEY_LOCKOUT_S = 300
+NOT_CONFIGURED = "the AI isn't configured on the server (MCW_AI_API_KEY is empty)"
+
+_client = None          # main key
+_backup_client = None   # backup key
+_main_down_until = 0.0  # time.time() until which the main key is tried second
+
+
+def _make_client(api_key):
+    from openai import OpenAI
+    return OpenAI(base_url=settings.AI_BASE_URL, api_key=api_key,
+                  timeout=settings.AI_TIMEOUT_S, max_retries=0)  # a retried timeout is paid twice
 
 
 def _default_client():
     global _client
     if _client is None:
         if not settings.AI_API_KEY:
-            raise AIUnavailable("the AI isn't configured on the server (MCW_AI_API_KEY is empty)")
-        from openai import OpenAI
-        _client = OpenAI(base_url=settings.AI_BASE_URL, api_key=settings.AI_API_KEY,
-                         timeout=settings.AI_TIMEOUT_S, max_retries=0)  # a retried timeout is paid twice
+            raise AIUnavailable(NOT_CONFIGURED)
+        _client = _make_client(settings.AI_API_KEY)
     return _client
+
+
+def _backup():
+    """The backup key's client, or None if there is no backup key."""
+    global _backup_client
+    if _backup_client is None and settings.AI_API_KEY_BACKUP:
+        _backup_client = _make_client(settings.AI_API_KEY_BACKUP)
+    return _backup_client
+
+
+def main_key_down_for():
+    """Seconds left before the main key is tried first again (0 while it's in use)."""
+    return max(0.0, _main_down_until - time.time())
 
 
 def _chat(client, messages):
@@ -247,7 +278,10 @@ def _chat(client, messages):
         resp = client.chat.completions.create(
             model=settings.AI_MODEL, max_tokens=settings.AI_MAX_TOKENS, temperature=0.2, messages=messages)
     except Exception as e:  # network, rate limit, bad key...
-        raise AIUnavailable(f"the AI service didn't answer ({type(e).__name__})") from e
+        status = getattr(e, "status_code", None)
+        timeout = isinstance(e, TimeoutError) or "Timeout" in type(e).__name__
+        raise AIUnavailable(f"the AI service didn't answer ({type(e).__name__})",
+                            timeout=timeout, key_rejected=status in (401, 402, 403)) from e
     usage = getattr(resp, "usage", None)
     choice = resp.choices[0]
     return (choice.message.content or "", getattr(choice, "finish_reason", None),
@@ -294,12 +328,36 @@ def parse(text):
     return CleanResult("error", message=UNREADABLE)
 
 
+def _chat_with_backup(messages):
+    """_chat() with the main key, falling back to the backup key. Returns _chat()'s tuple + the key used."""
+    global _main_down_until
+    main = _client is not None or bool(settings.AI_API_KEY)
+    order = [k for k, ok in (("main", main), ("backup", _backup() is not None)) if ok]
+    if not order:
+        raise AIUnavailable(NOT_CONFIGURED)
+    if len(order) == 2 and main_key_down_for() > 0:
+        order.reverse()  # the main key was refused a moment ago: don't make every request wait on it
+    for i, key in enumerate(order):
+        try:
+            return (*_chat(_default_client() if key == "main" else _backup(), messages), key)
+        except AIUnavailable as e:
+            if key == "main" and e.key_rejected:
+                _main_down_until = time.time() + KEY_LOCKOUT_S
+            if e.timeout or i == len(order) - 1:
+                raise
+            logger.warning("AI call with the %s key failed (%s); retrying with the %s key", key, e, order[i + 1])
+
+
 def clean(pseudocode, client=None):
-    """Pseudocode -> CleanResult. Raises AIUnavailable if the model can't be reached."""
-    client = client or _default_client()
+    """Pseudocode -> CleanResult. Raises AIUnavailable if the model can't be reached.
+    Without a client, uses the main API key and falls back to the backup key."""
     messages = [{"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": f"Pseudocode:\n{pseudocode.strip()}"}]
-    text, finish, pt, ct = _chat(client, messages)
+    if client is not None:
+        text, finish, pt, ct = _chat(client, messages)
+        key = "main"
+    else:
+        text, finish, pt, ct, key = _chat_with_backup(messages)
     result = parse(text)
     if result.status == "error" and finish == "length":
         result.message = "the AI ran out of room while thinking; please try again (clearer & shorter pseudocode helps)"
@@ -310,7 +368,7 @@ def clean(pseudocode, client=None):
             result = CleanResult("error", message="the AI's code broke a contest rule ("
                                  + (f"line {p['line']}: " if p["line"] else "") + p["message"]
                                  + "); please try again")
-    result.prompt_tokens, result.completion_tokens, result.raw = pt, ct, text
+    result.prompt_tokens, result.completion_tokens, result.raw, result.key = pt, ct, text, key
     return result
 
 

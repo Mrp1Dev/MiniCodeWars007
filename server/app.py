@@ -510,7 +510,7 @@ async def clean(body: CleanBody, p=Depends(participant)):
         public = result.public()
         # Logged before the reservation is released, so the spend is never counted as free.
         await run_in_threadpool(db.add_ai_request, p["id"], body.pseudocode, result.status, public, result.raw,
-                                result.prompt_tokens, result.completion_tokens, ms)
+                                result.prompt_tokens, result.completion_tokens, ms, result.key)
     return {**public, "remaining": settings.AI_MAX_PER_PARTICIPANT - used - 1}
 
 
@@ -597,7 +597,11 @@ def entries():
 def ai_usage():
     """Usage so far. "spent" and "budget" are in output-equivalent tokens (output + input/2)."""
     return {**db.ai_usage(), "budget": settings.AI_TOKEN_BUDGET,
-            "per_participant_budget": settings.AI_TOKENS_PER_PARTICIPANT}
+            "per_participant_budget": settings.AI_TOKENS_PER_PARTICIPANT,
+            # Backup key: whether one is set, and for how long the main key is being skipped after
+            # it was refused (never the keys themselves).
+            "backup_key_configured": bool(settings.AI_API_KEY_BACKUP),
+            "main_key_skipped_s": round(ai.main_key_down_for())}
 
 
 @app.get("/api/admin/ai-requests", dependencies=[Depends(admin)])

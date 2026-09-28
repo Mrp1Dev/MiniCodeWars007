@@ -35,6 +35,8 @@ MAX_PARALLEL_MATCHES = int(get("MCW_MAX_PARALLEL_MATCHES", max(2, (os.cpu_count(
 
 AI_BASE_URL = get("MCW_AI_BASE_URL", "https://api.featherless.ai/v1")
 AI_API_KEY = get("MCW_AI_API_KEY")
+# Optional second key, used when a call with the main key fails (see ai.py). Same base URL and model.
+AI_API_KEY_BACKUP = get("MCW_AI_API_KEY_BACKUP")
 AI_MODEL = get("MCW_AI_MODEL", "deepseek-ai/DeepSeek-V4-Flash-0731")
 AI_MAX_TOKENS = int(get("MCW_AI_MAX_TOKENS", 6000))  # thinking counts too; too low = empty answers
 AI_TIMEOUT_S = float(get("MCW_AI_TIMEOUT_S", 120))
