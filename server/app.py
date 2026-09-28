@@ -729,6 +729,8 @@ class WebFiles(StaticFiles):
 @app.get("/admin/{path:path}", response_class=FileResponse)
 @app.get("/screen", response_class=FileResponse)
 @app.get("/screen/{path:path}", response_class=FileResponse)
+@app.get("/tournament", response_class=FileResponse)
+@app.get("/tournament/{path:path}", response_class=FileResponse)
 def spa_page():
     index_file = WEB_DIR / "index.html"
     if index_file.is_file():

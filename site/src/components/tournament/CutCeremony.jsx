@@ -1,29 +1,32 @@
 import React from "react";
 
-export default function CutCeremony({ tiers }) {
+const TIER_NAMES = { 1: "Elite", 2: "Contender", 3: "Bubble" };
+
+export default function CutCeremony({ tiers, swissRounds = 8 }) {
   const { tier1 = [], tier2 = [], tier3 = [] } = tiers || {};
   const all32 = [...tier1, ...tier2, ...tier3];
 
   return (
-    <div className="cut-ceremony-container">
-      <div className="cut-banner">
-        THE CUT: TOP 32 CONTENDERS
-      </div>
-      <p className="faint" style={{ margin: "0 0 16px", fontSize: "15px" }}>
-        6 Swiss rounds concluded. The following 32 agents advance to the Single Elimination Championship Bracket:
-      </p>
+    <section className="cut-ceremony">
+      <header className="cut-head">
+        <span className="bs-eyebrow">{swissRounds} Swiss rounds complete</span>
+        <h1 className="cut-title">The Top {all32.length || 32}</h1>
+        <p className="cut-sub">These agents advance to the single-elimination knockout. Seeds set the bracket.</p>
+      </header>
 
-      <div className="cut-grid">
+      <ol className="cut-grid">
         {all32.map((bot, idx) => (
-          <div key={bot.participant_id || idx} className={`cut-bot-card ${bot.tier === 1 ? "elite" : ""}`}>
-            <span style={{ fontWeight: 700, color: "var(--t-gold)" }}>#{idx + 1}</span>
-            <span style={{ fontWeight: 600, fontSize: "14px" }}>{bot.bot_name}</span>
-            <span style={{ fontSize: "11px", color: "var(--t-muted)" }}>
-              {bot.tier === 1 ? "ELITE" : bot.tier === 2 ? "CONTENDER" : "BUBBLE"}
-            </span>
-          </div>
+          <li
+            key={bot.participant_id || idx}
+            className={`cut-card tier-${bot.tier || 3}`}
+            style={{ animationDelay: `${idx * 45}ms` }}
+          >
+            <span className="cut-seed">{idx + 1}</span>
+            <span className="cut-name" title={bot.bot_name}>{bot.bot_name}</span>
+            <span className="cut-tier">{TIER_NAMES[bot.tier] || ""}</span>
+          </li>
         ))}
-      </div>
-    </div>
+      </ol>
+    </section>
   );
 }

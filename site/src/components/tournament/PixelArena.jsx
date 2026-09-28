@@ -1,4 +1,5 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { playSound, setSoundEnabled } from "./duelSounds";
 
 /*
  * The marquee duel as a pixel-art scene: a rainy night dock, two agents trading fire.
@@ -17,7 +18,10 @@ const FEET = 170; // where the agents stand
 const XS = [72, 248];
 const DIRS = [1, -1]; // both face the middle
 
-// Turn choreography (a turn lasts 750ms on screen).
+// Turn choreography, in the ms of a 750ms turn. Slower turns (the server's turn_ms) stretch it all.
+const DESIGN_TURN_MS = 750;
+// The moves play out over ANIM_MS; the rest of a turn is a pause with the agents holding still.
+const ANIM_MS = 800;
 const T_FIRE = 150;
 const TRAVEL = { SHOOT: 230, SNIPE: 70 };
 const REFLECT_BACK = 220;
@@ -1278,9 +1282,13 @@ function spawnTurnEffects(sc, plan, e, now) {
   const toWorld = (i, p) => [XS[i] + DIRS[i] * p[0], FEET + p[1]];
   plan.agents.forEach((a, i) => {
     const d = DIRS[i];
+    if ((a.action === "SHIELD" || a.action === "COUNTER") && e >= 40) {
+      once(`shieldup${i}`, () => playSound("shield"));
+    }
     if ((a.action === "SHOOT" || a.action === "SNIPE") && e >= T_FIRE) {
       once(`fire${i}`, () => {
         const w = weaponFor(a.action);
+        playSound(w === "rifle" ? "sniper" : "pistol");
         const S = SPRITES && a.spr;
         const [cx, cy] = toWorld(i, S ? spritePoint(S, [S.grip[0] + 2, S.grip[1] - 5]) : wpt(rig("aim", w, 0).hand, 0, w, WEAPON_ART[w].eject));
         sc.particles.push({
@@ -1310,6 +1318,7 @@ function spawnTurnEffects(sc, plan, e, now) {
       const clickAt = w === "rifle" ? 500 : 520;
       if (e >= clickAt) {
         once(`click${i}`, () => {
+          playSound("reload");
           const [px, py] = toWorld(i, (SPRITES && a.reloadHand?.p) || a.rig.back || a.rig.hand);
           spawnSparks(sc, px, py, ["#fff2c0", "#ffd36a"], 4);
           addFloat(sc, "+1", XS[i], FEET - 84, "#ffd36a", now, 2);
@@ -1317,8 +1326,10 @@ function spawnTurnEffects(sc, plan, e, now) {
       }
     }
     if (a.action === "COUNTER" && a.fall === 0) {
+      if (e >= COUNTER_FIRE) once(`cfire${i}`, () => playSound("counterShot"));
       if (e >= COUNTER_HIT) {
         once(`chit${i}`, () => {
+          playSound("shieldHit");
           const [, my] = muzzleWorld(i, "pistol", 0);
           spawnSparks(sc, XS[i] + d * SHIELD_BACK, my, ["#ff5a4a", "#ffd0c8", "#ffffff"], 10, d);
           sc.shake = Math.max(sc.shake, 1.5);
@@ -1327,6 +1338,7 @@ function spawnTurnEffects(sc, plan, e, now) {
     }
     if (a.koAt !== null && e >= a.koAt + FALL_MS) {
       once(`dust${i}`, () => {
+        playSound("fall");
         spawnSparks(sc, XS[i] - d * 30, FEET, ["rgba(170,180,200,0.6)", "rgba(120,130,150,0.6)"], 14);
         sc.shake = Math.max(sc.shake, 2);
       });
@@ -1336,6 +1348,7 @@ function spawnTurnEffects(sc, plan, e, now) {
     const [ex, ey] = shotEnd(s);
     if (e >= s.impact && s.end !== "miss") {
       once(`impact${s.att}`, () => {
+        playSound({ hit: "hit", shield: "ricochet", counter: "ricochet", reflect: "reflect" }[s.end] || "clash");
         if (s.end === "hit") {
           spawnSparks(sc, ex, ey, ["#ffcf6a", "#ff7a4a", "#fff2c0"], 10, -DIRS[s.def]);
           addFloat(sc, "-1", XS[s.def], FEET - 84, "#ff5a5a", now, 2);
@@ -1360,6 +1373,7 @@ function spawnTurnEffects(sc, plan, e, now) {
     }
     if (s.end === "reflect" && e >= s.back) {
       once(`back${s.att}`, () => {
+        playSound("hit");
         spawnSparks(sc, XS[s.att], FEET - 40, ["#ffcf6a", "#ff7a4a"], 10, -DIRS[s.att]);
         addFloat(sc, "-1", XS[s.att], FEET - 84, "#ff5a5a", now, 2);
         sc.shake = Math.max(sc.shake, 2);
@@ -1377,6 +1391,7 @@ function drawParticles(g, sc, dt) {
     p.y += p.vy * dt;
     if (p.casing && p.y >= p.floor) {
       if (Math.abs(p.vy) > 40) {
+        if (!p.vanish && p.vy > 80) playSound("casing");
         p.y = p.floor;
         p.vy = -p.vy * 0.35;
         p.vx *= 0.5;
@@ -1487,7 +1502,7 @@ function renderFrame(g, sc, s, now) {
     sc.turnStart = now;
     sc.spawned = new Set();
   }
-  const e = now - sc.turnStart;
+  const e = ((now - sc.turnStart) * DESIGN_TURN_MS) / Math.min(ANIM_MS, s.turnMs || ANIM_MS);
   const plan = planTurn(s, e);
 
   sc.shake *= Math.pow(0.02, dt);
@@ -1536,8 +1551,32 @@ function renderFrame(g, sc, s, now) {
  *   winnerSide - 0 / 1 once the match is decided (used when the match is complete), else null
  *   matchId    - resets the scene between matches
  *   isBye      - a bye shows one agent and no fight
+ *   turnMs     - how long a turn lasts on screen (the choreography is stretched to fit)
+ *   sound      - whether sound starts on (the viewer can toggle it; the choice is remembered)
  */
-export default function PixelArena({ playback, names, winnerSide, matchId, isBye }) {
+export default function PixelArena({ playback, names, winnerSide, matchId, isBye, turnMs, sound = false }) {
+  const [soundOn, setSoundOn] = useState(() => {
+    try {
+      const saved = localStorage.getItem("mcw-duel-sound");
+      if (saved !== null) return saved === "1";
+    } catch {
+      // storage unavailable: use the default
+    }
+    return sound;
+  });
+  useEffect(() => {
+    setSoundEnabled(soundOn);
+    return () => setSoundEnabled(false);
+  }, [soundOn]);
+  const toggleSound = () => {
+    const next = !soundOn;
+    setSoundOn(next);
+    try {
+      localStorage.setItem("mcw-duel-sound", next ? "1" : "0");
+    } catch {
+      // not remembered, that's fine
+    }
+  };
   const boxRef = useRef(null);
   const canvasRef = useRef(null);
   const propsRef = useRef(null);
@@ -1547,6 +1586,7 @@ export default function PixelArena({ playback, names, winnerSide, matchId, isBye
     winnerSide,
     matchId,
     isBye,
+    turnMs,
   };
 
   useEffect(() => {
@@ -1588,6 +1628,22 @@ export default function PixelArena({ playback, names, winnerSide, matchId, isBye
   return (
     <div className="pixel-arena" ref={boxRef}>
       <canvas ref={canvasRef} width={W} height={H} aria-label="Live duel" />
+      <button
+        type="button"
+        className={`pixel-arena-sound ${soundOn ? "is-on" : ""}`}
+        onClick={toggleSound}
+        title={soundOn ? "Mute duel sounds" : "Play duel sounds"}
+        aria-label={soundOn ? "Mute duel sounds" : "Play duel sounds"}
+      >
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M2.5 6h2.5l3.5-3v10l-3.5-3h-2.5z" fill="currentColor" stroke="none" />
+          {soundOn ? (
+            <path d="M11 5.5a3.5 3.5 0 0 1 0 5M12.8 3.8a6 6 0 0 1 0 8.4" />
+          ) : (
+            <path d="M11 6l3.5 4M14.5 6l-3.5 4" />
+          )}
+        </svg>
+      </button>
     </div>
   );
 }
