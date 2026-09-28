@@ -92,9 +92,43 @@ const apiWords = completeFromList([
   { label: "memory", type: "variable", detail: "dict kept between turns" },
 ]);
 
+// --- no pasting from outside ---------------------------------------------------------------
+// So participants can't paste each other's code in, paste and drag-and-drop only accept text
+// that was copied, cut or dragged out of this same editor. Moving your own code around still works.
+
+const normalizeClip = (s) => (s || "").replace(/\r\n/g, "\n").replace(/\n+$/, "");
+
+// What Ctrl+C / Ctrl+X / a drag takes from the editor: the selected text, or the whole line
+// when nothing is selected (CodeMirror copies the line then).
+function selectedText(state) {
+  const ranges = state.selection.ranges;
+  if (ranges.every((r) => r.empty)) {
+    return ranges.map((r) => state.doc.lineAt(r.head).text).join("\n");
+  }
+  return ranges.filter((r) => !r.empty).map((r) => state.sliceDoc(r.from, r.to)).join("\n");
+}
+
+function ownTextOnly(onBlocked) {
+  let own = null; // the last text taken out of this editor
+  const remember = (_e, view) => { own = normalizeClip(selectedText(view.state)); return false; };
+  const isOwn = (text) => own !== null && normalizeClip(text) === own;
+  const block = (e) => {
+    e.preventDefault();
+    if (onBlocked.current) onBlocked.current();
+    return true;
+  };
+  return EditorView.domEventHandlers({
+    copy: remember,
+    cut: remember,
+    dragstart: remember,
+    paste: (e) => (isOwn(e.clipboardData?.getData("text/plain")) ? false : block(e)),
+    drop: (e) => (isOwn(e.dataTransfer?.getData("text/plain")) ? false : block(e)),
+  });
+}
+
 // --- component --------------------------------------------------------------------------
 
-const CodeEditor = forwardRef(function CodeEditor({ initialDoc, onChange, onHistory, onRun }, ref) {
+const CodeEditor = forwardRef(function CodeEditor({ initialDoc, onChange, onHistory, onRun, onPasteBlocked }, ref) {
   const host = useRef(null);
   const view = useRef(null);
   const onChangeRef = useRef(onChange);
@@ -103,6 +137,8 @@ const CodeEditor = forwardRef(function CodeEditor({ initialDoc, onChange, onHist
   onHistoryRef.current = onHistory;
   const onRunRef = useRef(onRun);
   onRunRef.current = onRun;
+  const onPasteBlockedRef = useRef(onPasteBlocked);
+  onPasteBlockedRef.current = onPasteBlocked;
 
   useEffect(() => {
     const v = new EditorView({
@@ -127,6 +163,7 @@ const CodeEditor = forwardRef(function CodeEditor({ initialDoc, onChange, onHist
           syntaxHighlighting(highlight),
           lintGutter(),
           quoteField,
+          ownTextOnly(onPasteBlockedRef),
           EditorView.lineWrapping,
           EditorView.updateListener.of((u) => {
             if (u.docChanged) onChangeRef.current(u.state.doc.toString());

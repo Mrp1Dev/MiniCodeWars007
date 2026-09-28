@@ -418,7 +418,8 @@ export default function Workspace({ me, status, offline, refreshStatus, refreshM
 
           <div className="editor-wrap">
             <CodeEditor ref={editor} initialDoc={initialDoc} onChange={setCode} onHistory={setCanUndo}
-              onRun={() => canTest && runRef.current()} />
+              onRun={() => canTest && runRef.current()}
+              onPasteBlocked={() => toast("Pasting from outside the editor is turned off. Type your bot yourself.", "bad")} />
           </div>
 
           {issues.length > 0 && (
