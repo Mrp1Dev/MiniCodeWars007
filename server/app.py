@@ -85,7 +85,12 @@ def participant(authorization: str = Header(default=""), x_roll: str = Header(de
     row = db.participant_by_roll(roll) if roll else None
     if row is None:
         raise HTTPException(401, "not registered; please sign in with your roll number")
+    if row["kicked"]:
+        raise HTTPException(401, KICKED_MESSAGE)  # 401 signs the browser out
     return row
+
+
+KICKED_MESSAGE = "you have been removed from the event by the organisers"
 
 
 def admin(x_admin_key: str = Header(default="")):
@@ -250,6 +255,25 @@ class RollBody(BaseModel):
     roll: str
 
 
+class RenameBody(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    bot_name: Optional[str] = Field(default=None, max_length=50)
+
+    @field_validator("name", "bot_name")
+    @classmethod
+    def clean(cls, v):
+        if v is None:
+            return None
+        v = " ".join(v.split())
+        if not v:
+            raise ValueError("names can't be empty")
+        return v
+
+
+class KickBody(BaseModel):
+    kicked: bool = True
+
+
 class TournAdvanceBody(BaseModel):
     target_stage: Optional[str] = None
 
@@ -364,6 +388,8 @@ def register(body: RegisterBody):
             return {"token": body.roll, "id": pid, "roll": body.roll, "name": body.name, "bot_name": bot_name, "new": True}
         except sqlite3.IntegrityError:  # registered by a request that raced this one
             row = db.participant_by_roll(body.roll)
+    if row["kicked"]:
+        raise HTTPException(403, KICKED_MESSAGE)
     else:
         if body.bot_name and not row["bot_name"]:
             db.update_participant(row["id"], bot_name=body.bot_name)
@@ -532,6 +558,33 @@ def announce(body: AnnounceBody):
 @app.get("/api/admin/participants", dependencies=[Depends(admin)])
 def participants():
     return [dict(r) for r in db.list_participants()]
+
+
+def _existing_participant(pid: int):
+    row = db.participant_by_id(pid)
+    if row is None:
+        raise HTTPException(404, "no such participant")
+    return row
+
+
+@app.post("/api/admin/participants/{pid}/rename", dependencies=[Depends(admin)])
+def rename_participant(pid: int, body: RenameBody):
+    """Changes a participant's name and, optionally, their bot's name (shown on the Big Screen)."""
+    _existing_participant(pid)
+    db.update_participant(pid, name=body.name, bot_name=body.bot_name)
+    tournament.invalidate_cache(standings=True)  # names are cached in the screen and standings
+    return dict(db.participant_by_id(pid))
+
+
+@app.post("/api/admin/participants/{pid}/kick", dependencies=[Depends(admin)])
+def kick_participant(pid: int, body: KickBody):
+    """Kicks a participant out (or lets them back in with kicked=false). A kicked participant is
+    signed out, can't sign back in, and leaves the tournament: they drop out of the standings and
+    their next opponent gets a bye. Their past matches stay in the history."""
+    _existing_participant(pid)
+    db.set_kicked(pid, body.kicked)
+    tournament.invalidate_cache(standings=True)
+    return dict(db.participant_by_id(pid))
 
 
 @app.get("/api/admin/entries", dependencies=[Depends(admin)])

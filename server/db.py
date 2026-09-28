@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS participants (
     name        TEXT NOT NULL,
     bot_name    TEXT,
     token_hash  TEXT,
-    created_at  REAL NOT NULL
+    created_at  REAL NOT NULL,
+    kicked      INTEGER NOT NULL DEFAULT 0  -- removed by the organisers: can't sign in, out of the tournament
 );
 CREATE TABLE IF NOT EXISTS submissions (
     id              INTEGER PRIMARY KEY,
@@ -124,6 +125,8 @@ def connect():
                 cols = [r["name"] for r in conn.execute("PRAGMA table_info(participants)").fetchall()]
                 if "bot_name" not in cols:
                     conn.execute("ALTER TABLE participants ADD COLUMN bot_name TEXT")
+                if "kicked" not in cols:
+                    conn.execute("ALTER TABLE participants ADD COLUMN kicked INTEGER NOT NULL DEFAULT 0")
                 _initialised = True
         with conn:  # commits, or rolls back on error
             yield conn
@@ -170,6 +173,16 @@ def update_participant(pid, name=None, bot_name=None):
             c.execute("UPDATE participants SET bot_name = ? WHERE id = ?", (bot_name, pid))
 
 
+def participant_by_id(pid):
+    with connect() as c:
+        return c.execute("SELECT * FROM participants WHERE id = ?", (pid,)).fetchone()
+
+
+def set_kicked(pid, kicked):
+    with connect() as c:
+        c.execute("UPDATE participants SET kicked = ? WHERE id = ?", (1 if kicked else 0, pid))
+
+
 def participant_by_token(token):
     return participant_by_roll(token)
 
@@ -182,7 +195,7 @@ def participant_by_roll(roll):
 def list_participants():
     with connect() as c:
         return c.execute("""
-            SELECT p.id, p.roll, p.name, p.bot_name, p.created_at,
+            SELECT p.id, p.roll, p.name, p.bot_name, p.created_at, p.kicked,
                    COUNT(s.id) AS submissions,
                    (SELECT status FROM submissions WHERE participant_id = p.id ORDER BY id DESC LIMIT 1) AS last_status,
                    (SELECT MAX(id) FROM submissions WHERE participant_id = p.id AND status != 'rejected') AS entry_id
@@ -226,6 +239,7 @@ def all_entries():
             SELECT p.roll, p.name, p.bot_name, s.id AS submission_id, s.status, s.code, s.created_at
             FROM participants p JOIN submissions s ON s.id = (
                 SELECT MAX(id) FROM submissions WHERE participant_id = p.id AND status != 'rejected')
+            WHERE p.kicked = 0
             ORDER BY p.id
         """).fetchall()
 

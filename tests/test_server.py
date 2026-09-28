@@ -169,6 +169,32 @@ class Server(unittest.TestCase):
         rows = self.c.get("/api/admin/participants", headers=ADMIN).json()
         self.assertEqual(rows[0]["submissions"], 0)
 
+    def test_admin_rename_and_kick(self):
+        auth = self.register(roll="25B0042", name="Rude Name")
+        pid = self.c.get("/api/me", headers=auth).json()["id"]
+        self.phase("coding", minutes=20)
+        self.assertEqual(self.c.post("/api/submit", json={"code": GOOD}, headers=auth).status_code, 200)
+
+        self.assertEqual(self.c.post(f"/api/admin/participants/{pid}/rename", json={"name": "X"}).status_code, 401)
+        r = self.c.post(f"/api/admin/participants/{pid}/rename",
+                        json={"name": "  Nice   Name ", "bot_name": "Agent_Nice"}, headers=ADMIN)
+        self.assertEqual((r.json()["name"], r.json()["bot_name"]), ("Nice Name", "Agent_Nice"))
+        self.assertEqual(self.c.post(f"/api/admin/participants/{pid}/rename", json={"name": "  "},
+                                     headers=ADMIN).status_code, 422)
+        self.assertEqual(self.c.post("/api/admin/participants/99999/kick", json={}, headers=ADMIN).status_code, 404)
+
+        self.assertEqual(self.c.post(f"/api/admin/participants/{pid}/kick", json={}, headers=ADMIN).status_code, 200)
+        self.assertEqual(self.c.get("/api/me", headers=auth).status_code, 401, "a kicked participant is signed out")
+        again = self.c.post("/api/register", json={"roll": "25B0042", "name": "Rude Name"})
+        self.assertEqual(again.status_code, 403, "and can't sign back in")
+        self.assertEqual(self.c.get("/api/admin/entries", headers=ADMIN).json(), [])
+        row = self.c.get("/api/admin/participants", headers=ADMIN).json()[0]
+        self.assertEqual(row["kicked"], 1)
+
+        self.c.post(f"/api/admin/participants/{pid}/kick", json={"kicked": False}, headers=ADMIN)
+        self.assertEqual(self.c.get("/api/me", headers=auth).status_code, 200, "let back in")
+        self.assertEqual(len(self.c.get("/api/admin/entries", headers=ADMIN).json()), 1)
+
     def test_public_info(self):
         bots = self.c.get("/api/house-bots").json()
         self.assertEqual([b["name"] for b in bots], ["always_reload", "random_bot", "trigger_happy"])

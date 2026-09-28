@@ -60,6 +60,9 @@ export default function Admin({ onExit }) {
   const [inspectedEntry, setInspectedEntry] = useState(null); // entry object
   const [inspectedAi, setInspectedAi] = useState(null); // ai_request object
   const [copiedText, setCopiedText] = useState(false);
+  const [menu, setMenu] = useState(null); // right-click menu on a participant: { p, x, y }
+  const [renaming, setRenaming] = useState(null); // { p, name, bot_name }
+  const [renameError, setRenameError] = useState("");
 
   // Filters & search
   const [participantSearch, setParticipantSearch] = useState("");
@@ -229,6 +232,70 @@ export default function Admin({ onExit }) {
     }
   }
 
+  // The right-click menu closes on any click, Escape, scroll or resize.
+  useEffect(() => {
+    if (!menu) return undefined;
+    const close = () => setMenu(null);
+    const onKey = (e) => e.key === "Escape" && close();
+    window.addEventListener("click", close);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [menu]);
+
+  function openParticipantMenu(e, p) {
+    e.preventDefault();
+    // keep the menu on screen near the edges
+    const x = Math.min(e.clientX, window.innerWidth - 230);
+    const y = Math.min(e.clientY, window.innerHeight - 120);
+    setMenu({ p, x, y });
+  }
+
+  function startRename(p) {
+    setMenu(null);
+    setRenameError("");
+    setRenaming({ p, name: p.name, bot_name: p.bot_name || "" });
+  }
+
+  async function handleRename(e) {
+    e.preventDefault();
+    const { p, name, bot_name } = renaming;
+    try {
+      await adminApi(`/api/admin/participants/${p.id}/rename`, {
+        body: { name, bot_name: bot_name.trim() ? bot_name : null },
+      });
+      setRenaming(null);
+      await loadDashboardData();
+      notify(`Renamed ${p.roll} to ${name.trim()}`, "success");
+    } catch (err) {
+      setRenameError(err.message);
+    }
+  }
+
+  async function handleKick(p, kicked) {
+    setMenu(null);
+    if (kicked && !window.confirm(
+      `Kick ${p.name} (${p.roll}) out of the game?\n\n` +
+      "• They're signed out and can't sign back in with this roll number.\n" +
+      "• They're taken out of the tournament: they leave the standings, and their next opponent gets a bye.\n" +
+      "• Their past matches stay in the history.\n\n" +
+      "You can let them back in later from this menu."
+    )) return;
+    try {
+      await adminApi(`/api/admin/participants/${p.id}/kick`, { body: { kicked } });
+      await loadDashboardData();
+      notify(kicked ? `${p.name} (${p.roll}) was kicked out` : `${p.name} (${p.roll}) is back in`, "success");
+    } catch (err) {
+      notify(err.message, "bad");
+    }
+  }
+
   function copyToClipboard(str) {
     navigator.clipboard.writeText(str).then(() => {
       setCopiedText(true);
@@ -270,6 +337,7 @@ export default function Admin({ onExit }) {
       if (participantFilter === "no_entry") return p.entry_id == null;
       if (participantFilter === "warning") return p.last_status === "warning";
       if (participantFilter === "ok") return p.last_status === "ok";
+      if (participantFilter === "kicked") return Boolean(p.kicked);
       return true;
     });
   }, [participants, participantSearch, participantFilter]);
@@ -733,7 +801,7 @@ export default function Admin({ onExit }) {
 
                 <div className="btn-group">
                   <span className="faint" style={{ fontSize: "12px" }}>Filter:</span>
-                  {["all", "has_entry", "no_entry", "warning"].map((f) => (
+                  {["all", "has_entry", "no_entry", "warning", "kicked"].map((f) => (
                     <button
                       key={f}
                       className={`btn btn-xs ${participantFilter === f ? "btn-gold" : "btn-quiet"}`}
@@ -767,14 +835,21 @@ export default function Admin({ onExit }) {
                       </tr>
                     ) : (
                       filteredParticipants.map((p) => (
-                        <tr key={p.id}>
+                        <tr
+                          key={p.id}
+                          className={`admin-row-menu ${p.kicked ? "is-kicked" : ""}`}
+                          onContextMenu={(e) => openParticipantMenu(e, p)}
+                          title="Right-click to rename or kick"
+                        >
                           <td className="faint">{p.id}</td>
                           <td><code>{p.roll}</code></td>
                           <td style={{ fontWeight: 550 }}>{p.name}</td>
                           <td style={{ color: "var(--gold)" }}>{p.bot_name || "--"}</td>
                           <td>{p.submissions}</td>
                           <td>
-                            {p.entry_id ? (
+                            {p.kicked ? (
+                              <span className="admin-badge badge-rejected">kicked</span>
+                            ) : p.entry_id ? (
                               <span className={`admin-badge badge-${p.last_status || "ok"}`}>
                                 {p.last_status || "entry ready"}
                               </span>
@@ -1016,6 +1091,77 @@ export default function Admin({ onExit }) {
         {tab === "tournament" && <AdminTournament notify={notify} eventPhase={phase} />}
       </main>
 
+
+      {/* Right-click menu on a participant */}
+      {menu && (
+        <div
+          className="admin-context-menu"
+          style={{ left: menu.x, top: menu.y }}
+          onClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.preventDefault()}
+          role="menu"
+        >
+          <div className="admin-context-title">
+            {menu.p.name} <code>{menu.p.roll}</code>
+          </div>
+          <button role="menuitem" onClick={() => startRename(menu.p)}>
+            <IconUser size={13} /> Rename…
+          </button>
+          {menu.p.kicked ? (
+            <button role="menuitem" onClick={() => handleKick(menu.p, false)}>
+              <IconCheck size={13} /> Let back in
+            </button>
+          ) : (
+            <button role="menuitem" className="danger" onClick={() => handleKick(menu.p, true)}>
+              <IconTrash size={13} /> Kick out of the game
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* MODAL: Rename a participant */}
+      {renaming && (
+        <div className="admin-modal-backdrop" onClick={() => setRenaming(null)}>
+          <form className="admin-modal admin-modal-small" onClick={(e) => e.stopPropagation()} onSubmit={handleRename}>
+            <div className="admin-modal-header">
+              <span className="admin-card-title">
+                Rename <code>{renaming.p.roll}</code>
+              </span>
+              <button type="button" className="icon-btn icon-btn-sm" onClick={() => setRenaming(null)}>
+                <IconClose size={14} />
+              </button>
+            </div>
+            <div className="admin-modal-body">
+              <label className="field">
+                <span>Name</span>
+                <input
+                  autoFocus
+                  maxLength={60}
+                  value={renaming.name}
+                  onChange={(e) => setRenaming({ ...renaming, name: e.target.value })}
+                />
+              </label>
+              <label className="field">
+                <span>Bot name (shown on the Big Screen)</span>
+                <input
+                  maxLength={50}
+                  value={renaming.bot_name}
+                  onChange={(e) => setRenaming({ ...renaming, bot_name: e.target.value })}
+                />
+              </label>
+              {renameError && <div className="note note-bad">{renameError}</div>}
+              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+                <button type="button" className="btn btn-sm btn-quiet" onClick={() => setRenaming(null)}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-sm btn-gold" disabled={!renaming.name.trim()}>
+                  Save
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* MODAL: View Entry Code */}
       {inspectedEntry && (

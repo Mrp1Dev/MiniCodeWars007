@@ -212,7 +212,7 @@ def _enter_stage(stage: str, started_at: Optional[float], highlight_match_id: Op
 # --- Entries & Standings -----------------------------------------------------------------
 
 def get_all_tournament_entries() -> List[ParticipantEntry]:
-    """Returns the latest valid submission for each registered participant."""
+    """Returns the latest valid submission for each registered participant who hasn't been kicked."""
     with db.connect() as c:
         rows = c.execute("""
             SELECT p.id, p.roll, p.name, p.bot_name, s.id as submission_id, s.code
@@ -221,6 +221,7 @@ def get_all_tournament_entries() -> List[ParticipantEntry]:
                 SELECT MAX(id) FROM submissions
                 WHERE participant_id = p.id AND status != 'rejected'
             )
+            WHERE p.kicked = 0
             ORDER BY p.id ASC
         """).fetchall()
         return [
@@ -408,7 +409,7 @@ def _standings_rows(round_number: int) -> List[Dict[str, Any]]:
                    s.damage_dealt, s.damage_taken, s.fumbles, s.tier, s.rank, p.bot_name
             FROM tournament_standings s
             JOIN participants p ON p.id = s.participant_id
-            WHERE s.round_number = ?
+            WHERE s.round_number = ? AND p.kicked = 0
             ORDER BY s.rank ASC
         """, (round_number,)).fetchall()
         return [dict(r) for r in rows]
@@ -1350,7 +1351,13 @@ def _elim_rows() -> Dict[Tuple[str, int], Dict[str, Any]]:
 
 
 def _swiss_seeds() -> Dict[int, int]:
-    """participant_id -> final Swiss rank."""
+    """participant_id -> final Swiss rank. Frozen once the last Swiss round is stored, so kicking
+    someone later doesn't reshuffle the bracket: their slot stays and the opponent gets a bye."""
+    with db.connect() as c:
+        rows = c.execute("SELECT participant_id, rank FROM tournament_standings WHERE round_number = ?",
+                         (SWISS_ROUNDS,)).fetchall()
+    if rows:
+        return {r["participant_id"]: r["rank"] for r in rows}
     return {s.participant_id: s.rank for s in compute_standings_from_history(SWISS_ROUNDS)}
 
 
